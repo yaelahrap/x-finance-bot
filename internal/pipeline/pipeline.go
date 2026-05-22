@@ -157,6 +157,61 @@ func (o *Orchestrator) ProcessBMKGAlerts(ctx context.Context) error {
 	return nil
 }
 
+// ProcessScheduledDrafts publishes any drafts whose scheduled_at is at or
+// before now. Failures are logged but do not abort the loop so a single bad
+// draft cannot block the rest of the queue.
+func (o *Orchestrator) ProcessScheduledDrafts(ctx context.Context) error {
+	now := time.Now().UTC()
+	due, err := o.store.GetDueScheduledDrafts(ctx, now)
+	if err != nil {
+		return fmt.Errorf("get due scheduled drafts: %w", err)
+	}
+	if len(due) == 0 {
+		return nil
+	}
+
+	o.logger.Info("publishing scheduled drafts", "count", len(due))
+
+	for _, d := range due {
+		if err := o.publishDraft(ctx, d); err != nil {
+			o.logger.Error("scheduled publish failed", "draft_id", d.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+// publishDraft sends a draft to the publisher and records the result.
+func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) error {
+	publishRes, err := o.publisher.PublishText(ctx, d.Content)
+	if err != nil {
+		return fmt.Errorf("publish: %w", err)
+	}
+
+	pub := models.PublishedPost{
+		ID:          uuid.New().String(),
+		DraftID:     d.ID,
+		XPostID:     publishRes.PostID,
+		Content:     d.Content,
+		PublishedAt: time.Now().UTC(),
+		Status:      publishRes.Status,
+	}
+	if err := o.store.SavePublished(ctx, pub); err != nil {
+		o.logger.Error("save published record", "draft_id", d.ID, "error", err)
+	}
+
+	if publishRes.Status == models.PublishStatusSuccess {
+		if err := o.store.UpdateDraftStatus(ctx, d.ID, models.DraftStatusPublished); err != nil {
+			o.logger.Error("update draft status", "draft_id", d.ID, "error", err)
+		}
+		if d.ArticleID != "" {
+			if err := o.store.UpdateArticleStatus(ctx, d.ArticleID, models.ArticleStatusPublished); err != nil {
+				o.logger.Error("update article status", "article_id", d.ArticleID, "error", err)
+			}
+		}
+	}
+	return nil
+}
+
 func (o *Orchestrator) ProcessCryptoAlerts(ctx context.Context) error {
 	o.logger.Info("starting ProcessCryptoAlerts cycle")
 	sources, err := o.store.GetEnabledSources(ctx)

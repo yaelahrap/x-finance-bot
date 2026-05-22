@@ -10,6 +10,8 @@ const (
 	DraftStatusPending DraftStatus = "pending"
 	// DraftStatusApproved means the draft passed review and is ready to publish.
 	DraftStatusApproved DraftStatus = "approved"
+	// DraftStatusScheduled means the draft is approved and queued to publish at ScheduledAt.
+	DraftStatusScheduled DraftStatus = "scheduled"
 	// DraftStatusRejected means the draft was rejected and will not be published.
 	DraftStatusRejected DraftStatus = "rejected"
 	// DraftStatusPublished means the draft has been published to X.
@@ -54,6 +56,8 @@ type DraftPost struct {
 	CreatedAt time.Time `json:"created_at"`
 	// ApprovedAt is when the draft was approved, if applicable.
 	ApprovedAt *time.Time `json:"approved_at,omitempty"`
+	// ScheduledAt is when the draft is scheduled to publish, if applicable.
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
 	// PublishedAt is when the draft was published, if applicable.
 	PublishedAt *time.Time `json:"published_at,omitempty"`
 }

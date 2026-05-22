@@ -1,4 +1,3 @@
-// Package server provides the HTTP server for the bot's admin API.
 package server
 
 import (
@@ -8,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/raflyramadhan/x-finance-bot/internal/server/dashboard"
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
 )
 
@@ -27,31 +27,51 @@ type Server struct {
 }
 
 // New creates a new HTTP server with all routes and middleware configured.
+//
+// Routing layout:
+//   - GET /            : redirect to /dashboard
+//   - GET /health      : public health probe
+//   - GET /dashboard   : embedded HTML dashboard (auth happens client-side via API key)
+//   - /api/*           : authenticated admin API
 func New(cfg Config) *Server {
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 
-	mux := http.NewServeMux()
-	Routes(mux, cfg.Store, logger)
+	apiMux := http.NewServeMux()
+	Routes(apiMux, cfg.Store, logger)
 
-	// Apply middleware stack
-	handler := Chain(mux,
+	apiHandler := Chain(apiMux,
 		Recovery(logger),
 		RequestLogger(logger),
 		CORS(cfg.AllowedOrigins),
 		RequireAPIKey(cfg.AdminAPIKey),
 	)
 
-	// Health endpoint should bypass auth
-	healthMux := http.NewServeMux()
-	healthMux.HandleFunc("GET /health", handleHealth)
-	healthMux.Handle("/", handler)
+	rootMux := http.NewServeMux()
+
+	rootMux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			http.Redirect(w, r, "/dashboard", http.StatusTemporaryRedirect)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	rootMux.HandleFunc("GET /health", handleHealth)
+
+	rootMux.HandleFunc("GET /dashboard", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(dashboard.IndexHTML)
+	})
+
+	rootMux.Handle("/api/", apiHandler)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      healthMux,
+		Handler:      rootMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

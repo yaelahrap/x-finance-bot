@@ -114,6 +114,11 @@ func main() {
 		Fn:   orchestrator.ProcessBIPulse,
 	}, 1*time.Hour)
 
+	sched.Register(scheduler.Job{
+		Name: "Scheduled Drafts Publisher",
+		Fn:   orchestrator.ProcessScheduledDrafts,
+	}, 1*time.Minute)
+
 	// Initialize HTTP server
 	srv := server.New(server.Config{
 		Port:           cfg.App.Port,

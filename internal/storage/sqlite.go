@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/raflyramadhan/x-finance-bot/internal/models"
@@ -84,6 +85,7 @@ func (s *SQLiteStore) migrate() error {
 			requires_manual_approval BOOLEAN DEFAULT true,
 			created_at TEXT NOT NULL,
 			approved_at TEXT,
+			scheduled_at TEXT,
 			published_at TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS published_posts (
@@ -118,6 +120,26 @@ func (s *SQLiteStore) migrate() error {
 	}
 
 	for _, m := range migrations {
+		if _, err := s.db.Exec(m); err != nil {
+			return err
+		}
+	}
+
+	// Idempotent ALTER migrations: tolerate "duplicate column" on existing DBs.
+	addColumnMigrations := []string{
+		`ALTER TABLE draft_posts ADD COLUMN scheduled_at TEXT`,
+	}
+	for _, m := range addColumnMigrations {
+		if _, err := s.db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return err
+		}
+	}
+
+	// Indexes that depend on columns added by ALTER above.
+	postAlterIndexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_draft_posts_scheduled_at ON draft_posts(scheduled_at)`,
+	}
+	for _, m := range postAlterIndexes {
 		if _, err := s.db.Exec(m); err != nil {
 			return err
 		}
@@ -168,6 +190,30 @@ func (s *SQLiteStore) GetArticlesByStatus(ctx context.Context, status models.Art
 	return articles, rows.Err()
 }
 
+// GetRecentArticles returns the most recently fetched articles regardless of status.
+func (s *SQLiteStore) GetRecentArticles(ctx context.Context, limit int) ([]models.Article, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, source_id, title, url, content, summary, published_at, fetched_at, hash, category, status
+		 FROM articles ORDER BY fetched_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var articles []models.Article
+	for rows.Next() {
+		a, err := scanArticleRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		articles = append(articles, *a)
+	}
+	return articles, rows.Err()
+}
+
 func (s *SQLiteStore) UpdateArticleStatus(ctx context.Context, id string, status models.ArticleStatus) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE articles SET status = ? WHERE id = ?`, string(status), id)
@@ -178,13 +224,14 @@ func (s *SQLiteStore) UpdateArticleStatus(ctx context.Context, id string, status
 
 func (s *SQLiteStore) SaveDraft(ctx context.Context, draft models.DraftPost) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO draft_posts (id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, published_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO draft_posts (id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		draft.ID, draft.ArticleID, string(draft.PostType), draft.Content,
 		draft.ThreadJSON, draft.ScoreJSON, draft.ReviewJSON,
 		string(draft.Status), draft.RequiresManualApproval,
 		formatTime(draft.CreatedAt),
 		formatTimePtr(draft.ApprovedAt),
+		formatTimePtr(draft.ScheduledAt),
 		formatTimePtr(draft.PublishedAt),
 	)
 	return err
@@ -192,7 +239,7 @@ func (s *SQLiteStore) SaveDraft(ctx context.Context, draft models.DraftPost) err
 
 func (s *SQLiteStore) GetPendingDrafts(ctx context.Context) ([]models.DraftPost, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
 		 FROM draft_posts WHERE status = ? ORDER BY created_at DESC`,
 		string(models.DraftStatusPending))
 	if err != nil {
@@ -213,7 +260,7 @@ func (s *SQLiteStore) GetPendingDrafts(ctx context.Context) ([]models.DraftPost,
 
 func (s *SQLiteStore) GetDraftByID(ctx context.Context, id string) (*models.DraftPost, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
 		 FROM draft_posts WHERE id = ?`, id)
 	return scanDraft(row)
 }
@@ -237,6 +284,61 @@ func (s *SQLiteStore) RejectDraft(ctx context.Context, id string) error {
 		`UPDATE draft_posts SET status = ? WHERE id = ?`,
 		string(models.DraftStatusRejected), id)
 	return err
+}
+
+// ScheduleDraft sets the draft to scheduled status with the given publish time.
+func (s *SQLiteStore) ScheduleDraft(ctx context.Context, id string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE draft_posts SET status = ?, scheduled_at = ? WHERE id = ?`,
+		string(models.DraftStatusScheduled), formatTime(at.UTC()), id)
+	return err
+}
+
+// GetDraftsByStatus returns drafts in the given status, newest first.
+func (s *SQLiteStore) GetDraftsByStatus(ctx context.Context, status models.DraftStatus, limit int) ([]models.DraftPost, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		 FROM draft_posts WHERE status = ? ORDER BY created_at DESC LIMIT ?`,
+		string(status), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var drafts []models.DraftPost
+	for rows.Next() {
+		d, err := scanDraftRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		drafts = append(drafts, *d)
+	}
+	return drafts, rows.Err()
+}
+
+// GetDueScheduledDrafts returns scheduled drafts whose scheduled_at is at or before "before".
+func (s *SQLiteStore) GetDueScheduledDrafts(ctx context.Context, before time.Time) ([]models.DraftPost, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		 FROM draft_posts WHERE status = ? AND scheduled_at IS NOT NULL AND scheduled_at <= ? ORDER BY scheduled_at ASC`,
+		string(models.DraftStatusScheduled), formatTime(before.UTC()))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var drafts []models.DraftPost
+	for rows.Next() {
+		d, err := scanDraftRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		drafts = append(drafts, *d)
+	}
+	return drafts, rows.Err()
 }
 
 // --- Published ---
@@ -352,6 +454,50 @@ func (s *SQLiteStore) SaveSource(ctx context.Context, source models.Source) erro
 	return err
 }
 
+// --- Stats ---
+
+// Counts returns aggregate tallies for dashboard summaries.
+func (s *SQLiteStore) Counts(ctx context.Context) (Counts, error) {
+	var c Counts
+
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM articles`).Scan(&c.Articles); err != nil {
+		return c, err
+	}
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sources WHERE enabled = true`).Scan(&c.Sources); err != nil {
+		return c, err
+	}
+
+	draftCounts := []struct {
+		status string
+		dest   *int
+	}{
+		{string(models.DraftStatusPending), &c.DraftsPending},
+		{string(models.DraftStatusApproved), &c.DraftsApproved},
+		{string(models.DraftStatusScheduled), &c.DraftsScheduled},
+		{string(models.DraftStatusRejected), &c.DraftsRejected},
+		{string(models.DraftStatusPublished), &c.DraftsPublished},
+	}
+	for _, dc := range draftCounts {
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM draft_posts WHERE status = ?`, dc.status).Scan(dc.dest); err != nil {
+			return c, err
+		}
+	}
+
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM published_posts WHERE status = ?`,
+		string(models.PublishStatusSuccess)).Scan(&c.PublishedSuccess); err != nil {
+		return c, err
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM published_posts WHERE status = ?`,
+		string(models.PublishStatusFailed)).Scan(&c.PublishedFailed); err != nil {
+		return c, err
+	}
+
+	return c, nil
+}
+
 // --- Helpers ---
 
 func formatTime(t time.Time) string {
@@ -453,13 +599,13 @@ func scanDraft(row *sql.Row) (*models.DraftPost, error) {
 	var d models.DraftPost
 	var articleID, threadJSON, scoreJSON, reviewJSON sql.NullString
 	var createdAt string
-	var approvedAt, publishedAt sql.NullString
+	var approvedAt, scheduledAt, publishedAt sql.NullString
 	var postType, status string
 
 	err := row.Scan(&d.ID, &articleID, &postType, &d.Content,
 		&threadJSON, &scoreJSON, &reviewJSON,
 		&status, &d.RequiresManualApproval, &createdAt,
-		&approvedAt, &publishedAt)
+		&approvedAt, &scheduledAt, &publishedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -486,6 +632,10 @@ func scanDraft(row *sql.Row) (*models.DraftPost, error) {
 		s := approvedAt.String
 		d.ApprovedAt = parseTimePtr(&s)
 	}
+	if scheduledAt.Valid {
+		s := scheduledAt.String
+		d.ScheduledAt = parseTimePtr(&s)
+	}
 	if publishedAt.Valid {
 		s := publishedAt.String
 		d.PublishedAt = parseTimePtr(&s)
@@ -498,13 +648,13 @@ func scanDraftRow(rows *sql.Rows) (*models.DraftPost, error) {
 	var d models.DraftPost
 	var articleID, threadJSON, scoreJSON, reviewJSON sql.NullString
 	var createdAt string
-	var approvedAt, publishedAt sql.NullString
+	var approvedAt, scheduledAt, publishedAt sql.NullString
 	var postType, status string
 
 	err := rows.Scan(&d.ID, &articleID, &postType, &d.Content,
 		&threadJSON, &scoreJSON, &reviewJSON,
 		&status, &d.RequiresManualApproval, &createdAt,
-		&approvedAt, &publishedAt)
+		&approvedAt, &scheduledAt, &publishedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -527,6 +677,10 @@ func scanDraftRow(rows *sql.Rows) (*models.DraftPost, error) {
 	if approvedAt.Valid {
 		s := approvedAt.String
 		d.ApprovedAt = parseTimePtr(&s)
+	}
+	if scheduledAt.Valid {
+		s := scheduledAt.String
+		d.ScheduledAt = parseTimePtr(&s)
 	}
 	if publishedAt.Valid {
 		s := publishedAt.String

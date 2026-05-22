@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/raflyramadhan/x-finance-bot/internal/models"
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
@@ -13,10 +15,13 @@ import (
 // Routes registers all HTTP routes on the given mux.
 func Routes(mux *http.ServeMux, store storage.Storage, logger *slog.Logger) {
 	mux.HandleFunc("GET /health", handleHealth)
+	mux.HandleFunc("GET /api/stats", handleGetStats(store, logger))
 	mux.HandleFunc("GET /api/drafts", handleGetDrafts(store, logger))
 	mux.HandleFunc("GET /api/drafts/{id}", handleGetDraft(store, logger))
 	mux.HandleFunc("POST /api/drafts/{id}/approve", handleApproveDraft(store, logger))
 	mux.HandleFunc("POST /api/drafts/{id}/reject", handleRejectDraft(store, logger))
+	mux.HandleFunc("POST /api/drafts/{id}/schedule", handleScheduleDraft(store, logger))
+	mux.HandleFunc("GET /api/articles", handleGetArticles(store, logger))
 	mux.HandleFunc("GET /api/published", handleGetPublished(store, logger))
 	mux.HandleFunc("GET /api/sources", handleGetSources(store, logger))
 	mux.HandleFunc("POST /api/sources", handleCreateSource(store, logger))
@@ -29,9 +34,19 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func handleGetDrafts(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		drafts, err := store.GetPendingDrafts(r.Context())
+		statusFilter := r.URL.Query().Get("status")
+		limit := parseLimit(r.URL.Query().Get("limit"), 100)
+
+		var drafts []models.DraftPost
+		var err error
+
+		if statusFilter == "" || statusFilter == "pending" {
+			drafts, err = store.GetPendingDrafts(r.Context())
+		} else {
+			drafts, err = store.GetDraftsByStatus(r.Context(), models.DraftStatus(statusFilter), limit)
+		}
 		if err != nil {
-			logger.Error("get drafts", "error", err)
+			logger.Error("get drafts", "error", err, "status", statusFilter)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get drafts"})
 			return
 		}
@@ -176,6 +191,97 @@ func handleGetMarket(store storage.Storage, logger *slog.Logger) http.HandlerFun
 		}
 		writeJSON(w, http.StatusOK, snap)
 	}
+}
+
+func handleGetStats(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		counts, err := store.Counts(r.Context())
+		if err != nil {
+			logger.Error("get stats", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get stats"})
+			return
+		}
+		writeJSON(w, http.StatusOK, counts)
+	}
+}
+
+func handleScheduleDraft(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing draft id"})
+			return
+		}
+
+		var body struct {
+			ScheduledAt string `json:"scheduled_at"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+			return
+		}
+		if body.ScheduledAt == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scheduled_at is required (RFC3339)"})
+			return
+		}
+		at, err := time.Parse(time.RFC3339, body.ScheduledAt)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scheduled_at must be RFC3339"})
+			return
+		}
+		if at.Before(time.Now().UTC().Add(-1 * time.Minute)) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scheduled_at must be in the future"})
+			return
+		}
+
+		if err := store.ScheduleDraft(r.Context(), id, at); err != nil {
+			logger.Error("schedule draft", "error", err, "id", id)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to schedule draft"})
+			return
+		}
+
+		logger.Info("draft scheduled", "id", id, "at", at)
+		writeJSON(w, http.StatusOK, map[string]any{"status": "scheduled", "id": id, "scheduled_at": at})
+	}
+}
+
+func handleGetArticles(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit := parseLimit(r.URL.Query().Get("limit"), 50)
+		statusFilter := r.URL.Query().Get("status")
+
+		var articles []models.Article
+		var err error
+
+		if statusFilter == "" {
+			articles, err = store.GetRecentArticles(r.Context(), limit)
+		} else {
+			articles, err = store.GetArticlesByStatus(r.Context(), models.ArticleStatus(statusFilter), limit)
+		}
+		if err != nil {
+			logger.Error("get articles", "error", err, "status", statusFilter)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get articles"})
+			return
+		}
+		if articles == nil {
+			articles = []models.Article{}
+		}
+		writeJSON(w, http.StatusOK, articles)
+	}
+}
+
+func parseLimit(raw string, fallback int) int {
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	if n > 500 {
+		return 500
+	}
+	return n
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
