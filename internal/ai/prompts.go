@@ -23,7 +23,7 @@ You MUST format the output based on the input's "Category" field:
 
    [Detail info penting seperti magnitudo, lokasi, kedalaman, potensi tsunami, dan area terdampak]
 
-   Sumber: [Nama Sumber]
+   Sumber: [Nama Sumber] ([URL dari input])
 
 2. If Category is "market" (e.g. Bank Indonesia JISDOR):
    Use this layout:
@@ -32,7 +32,7 @@ You MUST format the output based on the input's "Category" field:
    • Nilai: Rp [Nilai Kurs] ([Persentase Perubahan]%)
    • Detail: [Penjelasan singkat dampak/intervensi/konteks pasar]
 
-   Sumber: Bank Indonesia
+   Sumber: Bank Indonesia ([URL dari input])
 
 3. If Category is "crypto" (e.g. CoinMarketCap):
    Use this layout:
@@ -41,7 +41,7 @@ You MUST format the output based on the input's "Category" field:
    • Harga: $[Harga] ([Persentase Perubahan 24h]%)
    • Detail: [Penjelasan singkat pergerakan pasar]
 
-   Sumber: CoinMarketCap
+   Sumber: CoinMarketCap ([URL dari input])
 
 4. If Category is "news" (General news like CNBC, Kontan, Google News):
    Use this layout:
@@ -49,10 +49,14 @@ You MUST format the output based on the input's "Category" field:
 
    [Penjelasan singkat 1-2 kalimat berisi fakta kunci / dampak bagi Indonesia]
 
-   Sumber: [Nama Sumber]
+   Sumber: [Nama Sumber] ([URL dari input])
 
 General Rules:
-- Keep all X posts within 280 characters limit.
+- For the "Sumber:" line in all category layouts:
+  * If the input "url" field is not empty, you MUST include the URL in parentheses next to the source name. Example: "Sumber: CNBC Indonesia (https://cnbcindonesia.com/news/123)"
+  * If the input "url" field is empty or missing, write only the source name. Example: "Sumber: CNBC Indonesia"
+  * Do not output empty parentheses "()" if the URL is empty or missing.
+- Keep all X posts within 280 characters limit. X (Twitter) automatically shortens all URLs to exactly 23 characters, so count the URL as 23 characters when checking the limit.
 - If using thread ("suggested_thread"), ensure the first tweet follows the layout above, and subsequent tweets add details.
 - Never write text outside the requested JSON.
 
