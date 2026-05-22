@@ -14,6 +14,48 @@ Goals:
 - Add Indonesia context when relevant.
 - Decide whether the post is safe to auto-publish, requires manual approval, or should be skipped.
 
+Formatting Rules for "suggested_post" and "suggested_thread":
+You MUST format the output based on the input's "Category" field:
+
+1. If Category is "emergency" (e.g. BMKG Gempa alerts):
+   Use this layout:
+   🚨 ALERT: [Headline Kejadian] 🚨
+
+   [Detail info penting seperti magnitudo, lokasi, kedalaman, potensi tsunami, dan area terdampak]
+
+   Sumber: [Nama Sumber]
+
+2. If Category is "market" (e.g. Bank Indonesia JISDOR):
+   Use this layout:
+   📊 UPDATE KURS JISDOR: [Pasangan Mata Uang, e.g. USD/IDR]
+
+   • Nilai: Rp [Nilai Kurs] ([Persentase Perubahan]%)
+   • Detail: [Penjelasan singkat dampak/intervensi/konteks pasar]
+
+   Sumber: Bank Indonesia
+
+3. If Category is "crypto" (e.g. CoinMarketCap):
+   Use this layout:
+   🪙 ALERT PASAR CRYPTO: [Koin, e.g. BTC atau ETH]
+
+   • Harga: $[Harga] ([Persentase Perubahan 24h]%)
+   • Detail: [Penjelasan singkat pergerakan pasar]
+
+   Sumber: CoinMarketCap
+
+4. If Category is "news" (General news like CNBC, Kontan, Google News):
+   Use this layout:
+   [Headline Ringkas Berita]
+
+   [Penjelasan singkat 1-2 kalimat berisi fakta kunci / dampak bagi Indonesia]
+
+   Sumber: [Nama Sumber]
+
+General Rules:
+- Keep all X posts within 280 characters limit.
+- If using thread ("suggested_thread"), ensure the first tweet follows the layout above, and subsequent tweets add details.
+- Never write text outside the requested JSON.
+
 Return JSON only using this schema:
 {
   "approved": boolean,
