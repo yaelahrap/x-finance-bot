@@ -51,12 +51,8 @@ func New(cfg Config) *Server {
 
 	rootMux := http.NewServeMux()
 
-	rootMux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			http.Redirect(w, r, "/dashboard", http.StatusTemporaryRedirect)
-			return
-		}
-		http.NotFound(w, r)
+	rootMux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard", http.StatusTemporaryRedirect)
 	})
 
 	rootMux.HandleFunc("GET /health", handleHealth)
