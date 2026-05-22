@@ -77,6 +77,8 @@ type BotConfig struct {
 	MinAutoPostScore int
 	// AdminAPIKey is the bearer token protecting the admin/control API.
 	AdminAPIKey string
+	// CMCAPIKey is the API key for CoinMarketCap.
+	CMCAPIKey string
 }
 
 // Config is the typed, validated configuration for the entire bot.
@@ -170,6 +172,7 @@ func Load() (*Config, error) {
 			PostingMode:      getEnv("POSTING_MODE", defaultPostingMode),
 			MinAutoPostScore: getEnvInt("MIN_AUTO_POST_SCORE", defaultMinAutoPostScore),
 			AdminAPIKey:      getEnv("ADMIN_API_KEY", ""),
+			CMCAPIKey:        getEnv("CMC_API_KEY", ""),
 		},
 	}
 

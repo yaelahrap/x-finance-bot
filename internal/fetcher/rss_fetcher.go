@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/raflyramadhan/x-finance-bot/internal/dedupe"
 	"github.com/raflyramadhan/x-finance-bot/internal/models"
 )
@@ -54,7 +55,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context) ([]models.Article, error) {
 		return nil, fmt.Errorf("rss fetch %s: read body: %w", f.source.Name, err)
 	}
 
-	feed, err := parseRSS(body)
+	feed, err := ParseRSS(body)
 	if err != nil {
 		return nil, fmt.Errorf("rss fetch %s: parse: %w", f.source.Name, err)
 	}
@@ -62,13 +63,15 @@ func (f *RSSFetcher) Fetch(ctx context.Context) ([]models.Article, error) {
 	now := time.Now().UTC()
 	var articles []models.Article
 	for _, item := range feed.Items {
-		pubTime := parseRSSTime(item.PubDate)
+		pubTime := ParseRSSTime(item.PubDate)
 
 		a := models.Article{
+			ID:          uuid.New().String(),
 			SourceID:    f.source.ID,
 			Title:       item.Title,
 			URL:         item.Link,
 			Content:     item.Description,
+			Summary:     item.Description,
 			PublishedAt: pubTime,
 			FetchedAt:   now,
 			Category:    f.source.Category,
@@ -116,13 +119,13 @@ type atomLink struct {
 	Href string `xml:"href,attr"`
 }
 
-func parseRSS(data []byte) (*parsedFeed, error) {
+func ParseRSS(data []byte) (*ParsedFeed, error) {
 	// Try RSS 2.0 first
 	var rss rssFeed
 	if err := xml.Unmarshal(data, &rss); err == nil && len(rss.Channel.Items) > 0 {
-		feed := &parsedFeed{}
+		feed := &ParsedFeed{}
 		for _, item := range rss.Channel.Items {
-			feed.Items = append(feed.Items, parsedItem{
+			feed.Items = append(feed.Items, ParsedItem{
 				Title:       item.Title,
 				Link:        item.Link,
 				Description: item.Description,
@@ -135,9 +138,9 @@ func parseRSS(data []byte) (*parsedFeed, error) {
 	// Try Atom
 	var atom atomFeed
 	if err := xml.Unmarshal(data, &atom); err == nil && len(atom.Entries) > 0 {
-		feed := &parsedFeed{}
+		feed := &ParsedFeed{}
 		for _, entry := range atom.Entries {
-			feed.Items = append(feed.Items, parsedItem{
+			feed.Items = append(feed.Items, ParsedItem{
 				Title:       entry.Title,
 				Link:        entry.Link.Href,
 				Description: entry.Summary,
@@ -150,19 +153,19 @@ func parseRSS(data []byte) (*parsedFeed, error) {
 	return nil, fmt.Errorf("unable to parse feed as RSS or Atom")
 }
 
-type parsedFeed struct {
-	Items []parsedItem
+type ParsedFeed struct {
+	Items []ParsedItem
 }
 
-type parsedItem struct {
+type ParsedItem struct {
 	Title       string
 	Link        string
 	Description string
 	PubDate     string
 }
 
-// parseRSSTime attempts to parse common RSS date formats.
-func parseRSSTime(s string) *time.Time {
+// ParseRSSTime attempts to parse common RSS date formats.
+func ParseRSSTime(s string) *time.Time {
 	if s == "" {
 		return nil
 	}
