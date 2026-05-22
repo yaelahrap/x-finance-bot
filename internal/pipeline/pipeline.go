@@ -158,7 +158,8 @@ func (o *Orchestrator) ProcessBMKGAlerts(ctx context.Context) error {
 }
 
 // ProcessScheduledDrafts publishes any drafts whose scheduled_at is at or
-// before now. Failures are logged but do not abort the loop so a single bad
+// before now, as well as manually approved drafts that are ready to publish immediately.
+// Failures are logged but do not abort the loop so a single bad
 // draft cannot block the rest of the queue.
 func (o *Orchestrator) ProcessScheduledDrafts(ctx context.Context) error {
 	now := time.Now().UTC()
@@ -166,15 +167,22 @@ func (o *Orchestrator) ProcessScheduledDrafts(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get due scheduled drafts: %w", err)
 	}
-	if len(due) == 0 {
+
+	approved, err := o.store.GetDraftsByStatus(ctx, models.DraftStatusApproved, 100)
+	if err != nil {
+		return fmt.Errorf("get approved drafts: %w", err)
+	}
+
+	toPublish := append(due, approved...)
+	if len(toPublish) == 0 {
 		return nil
 	}
 
-	o.logger.Info("publishing scheduled drafts", "count", len(due))
+	o.logger.Info("publishing outgoing drafts", "scheduled", len(due), "approved", len(approved))
 
-	for _, d := range due {
+	for _, d := range toPublish {
 		if err := o.publishDraft(ctx, d); err != nil {
-			o.logger.Error("scheduled publish failed", "draft_id", d.ID, "error", err)
+			o.logger.Error("publish failed", "draft_id", d.ID, "error", err)
 		}
 	}
 	return nil
