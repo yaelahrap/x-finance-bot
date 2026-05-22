@@ -104,6 +104,11 @@
 
               <div class="text-sm whitespace-pre-wrap leading-relaxed mb-3" x-text="draft.content"></div>
 
+              <!-- Generated Card Preview -->
+              <div x-show="draft.media_url" class="mt-2 mb-3 max-w-lg overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+                <img :src="draft.media_url" alt="Generated Card Preview" class="w-full h-auto object-contain">
+              </div>
+
               <details x-show="parseReview(draft).why_it_matters || draft.thread_json" class="text-xs text-slate-400 mb-3">
                 <summary class="cursor-pointer hover:text-slate-200">Details</summary>
                 <div class="mt-2 space-y-2 pl-2 border-l-2 border-slate-800">
@@ -162,6 +167,14 @@
                 <div class="text-xs text-slate-500" x-text="formatTime(post.published_at)"></div>
               </div>
               <div class="text-sm whitespace-pre-wrap leading-relaxed" x-text="post.content"></div>
+              
+              <!-- Published Media Previews -->
+              <template x-for="url in post.media_urls" :key="url">
+                <div class="mt-2 mb-3 max-w-lg overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
+                  <img :src="url" alt="Published Media Preview" class="w-full h-auto object-contain">
+                </div>
+              </template>
+
               <a x-show="post.x_post_id" :href="'https://x.com/i/status/' + post.x_post_id" target="_blank"
                  class="mt-2 inline-block text-xs text-emerald-400 hover:text-emerald-300">
                 Open on X →

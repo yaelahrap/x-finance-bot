@@ -3,6 +3,9 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,12 +55,12 @@ func (r *R2Client) Upload(ctx context.Context, key string, data []byte, contentT
 	req.Header.Set("Content-Type", contentType)
 	req.ContentLength = int64(len(data))
 
-	// S3-compatible auth headers
+	// AWS Signature Version 4 for Cloudflare R2 authentication
 	r.signRequest(req)
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("r2 upload: %w", err)
+		return "", fmt.Errorf("r2 upload request execution: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -77,13 +80,69 @@ func (r *R2Client) ObjectURL(key string) string {
 	return fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucketMedia, key)
 }
 
-// signRequest adds S3-compatible authorization headers.
-// For MVP, this uses a simplified approach. Production should use full AWS Sig V4.
+// signRequest signs the HTTP request using AWS Signature Version 4.
 func (r *R2Client) signRequest(req *http.Request) {
-	// Cloudflare R2 supports S3-compatible auth.
-	// For the MVP, we set basic auth headers. Full AWS Sig V4 signing
-	// should be implemented for production using a library like aws-sdk-go-v2.
-	req.Header.Set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
-	// In production, use proper AWS Signature V4 signing here.
-	// For now, R2 tokens with appropriate permissions can use simplified auth.
+	region := "auto"
+	service := "s3"
+
+	now := time.Now().UTC()
+	amzDate := now.Format("20060102T150405Z")
+	dateStamp := now.Format("20060102")
+
+	req.Header.Set("X-Amz-Date", amzDate)
+
+	payloadHash := "UNSIGNED-PAYLOAD"
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+
+	host := req.URL.Host
+	req.Header.Set("Host", host)
+
+	canonicalURI := req.URL.EscapedPath()
+	canonicalQuery := ""
+
+	// We sign the host, x-amz-content-sha256, and x-amz-date headers.
+	canonicalHeaders := fmt.Sprintf("host:%s\nx-amz-content-sha256:%s\nx-amz-date:%s\n", host, payloadHash, amzDate)
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+
+	canonicalReq := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
+		req.Method,
+		canonicalURI,
+		canonicalQuery,
+		canonicalHeaders,
+		signedHeaders,
+		payloadHash,
+	)
+
+	hReq := sha256.New()
+	hReq.Write([]byte(canonicalReq))
+	hashedCanonicalReq := hex.EncodeToString(hReq.Sum(nil))
+
+	credentialScope := fmt.Sprintf("%s/%s/%s/aws4_request", dateStamp, region, service)
+	stringToSign := fmt.Sprintf("AWS4-HMAC-SHA256\n%s\n%s\n%s",
+		amzDate,
+		credentialScope,
+		hashedCanonicalReq,
+	)
+
+	// Signing Key derivation
+	hDate := hmacSHA256([]byte("AWS4"+r.secretKey), []byte(dateStamp))
+	hRegion := hmacSHA256(hDate, []byte(region))
+	hService := hmacSHA256(hRegion, []byte(service))
+	hSigning := hmacSHA256(hService, []byte("aws4_request"))
+
+	signature := hex.EncodeToString(hmacSHA256(hSigning, []byte(stringToSign)))
+
+	authHeader := fmt.Sprintf("AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
+		r.accessKeyID,
+		credentialScope,
+		signedHeaders,
+		signature,
+	)
+	req.Header.Set("Authorization", authHeader)
+}
+
+func hmacSHA256(key, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
+	return h.Sum(nil)
 }

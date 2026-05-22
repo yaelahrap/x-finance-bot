@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/raflyramadhan/x-finance-bot/internal/ai"
 	"github.com/raflyramadhan/x-finance-bot/internal/decision"
 	"github.com/raflyramadhan/x-finance-bot/internal/fetcher"
+	cardgen "github.com/raflyramadhan/x-finance-bot/internal/image"
 	"github.com/raflyramadhan/x-finance-bot/internal/models"
 	"github.com/raflyramadhan/x-finance-bot/internal/publisher"
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
@@ -23,6 +26,7 @@ type Orchestrator struct {
 	reviewer    *ai.Reviewer
 	engine      *decision.Engine
 	publisher   publisher.Publisher
+	r2Client    *storage.R2Client
 	logger      *slog.Logger
 	cmcAPIKey   string
 	postingMode string
@@ -34,6 +38,7 @@ func NewOrchestrator(
 	reviewer *ai.Reviewer,
 	engine *decision.Engine,
 	pub publisher.Publisher,
+	r2Client *storage.R2Client,
 	logger *slog.Logger,
 	cmcAPIKey string,
 	postingMode string,
@@ -43,6 +48,7 @@ func NewOrchestrator(
 		reviewer:    reviewer,
 		engine:      engine,
 		publisher:   pub,
+		r2Client:    r2Client,
 		logger:      logger,
 		cmcAPIKey:   cmcAPIKey,
 		postingMode: postingMode,
@@ -188,9 +194,58 @@ func (o *Orchestrator) ProcessScheduledDrafts(ctx context.Context) error {
 	return nil
 }
 
+// downloadMediaBytes fetches the image data from a public URL.
+func (o *Orchestrator) downloadMediaBytes(ctx context.Context, mediaURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create download request: %w", err)
+	}
+
+	resp, err := o.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download request execution: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("download failed (status %d)", resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
 // publishDraft sends a draft to the publisher and records the result.
 func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) error {
-	publishRes, err := o.publisher.PublishText(ctx, d.Content)
+	var publishRes *publisher.PublishResult
+	var err error
+
+	var mediaIDs []string
+	if d.MediaURL != "" {
+		o.logger.Info("downloading media for publish", "url", d.MediaURL)
+		mediaBytes, dlErr := o.downloadMediaBytes(ctx, d.MediaURL)
+		if dlErr != nil {
+			o.logger.Error("failed to download media, falling back to text-only publish", "error", dlErr)
+		} else {
+			if xClient, ok := o.publisher.(*publisher.XClient); ok {
+				uploader := publisher.NewMediaUploader(xClient)
+				o.logger.Info("uploading media to X")
+				mediaID, upErr := uploader.UploadBytes(ctx, mediaBytes, "card.png")
+				if upErr != nil {
+					o.logger.Error("failed to upload media to X, falling back to text-only publish", "error", upErr)
+				} else {
+					o.logger.Info("media uploaded to X successfully", "media_id", mediaID)
+					mediaIDs = []string{mediaID}
+				}
+			}
+		}
+	}
+
+	if len(mediaIDs) > 0 {
+		publishRes, err = o.publisher.PublishWithMedia(ctx, d.Content, mediaIDs)
+	} else {
+		publishRes, err = o.publisher.PublishText(ctx, d.Content)
+	}
+
 	if err != nil {
 		return fmt.Errorf("publish: %w", err)
 	}
@@ -202,6 +257,9 @@ func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) err
 		Content:     d.Content,
 		PublishedAt: time.Now().UTC(),
 		Status:      publishRes.Status,
+	}
+	if len(mediaIDs) > 0 && d.MediaURL != "" {
+		pub.MediaURLs = []string{d.MediaURL}
 	}
 	if err := o.store.SavePublished(ctx, pub); err != nil {
 		o.logger.Error("save published record", "draft_id", d.ID, "error", err)
@@ -352,6 +410,39 @@ func (o *Orchestrator) processArticle(ctx context.Context, src models.Source, ar
 		CreatedAt:              time.Now().UTC(),
 	}
 
+	// Generate and upload card image if category matches
+	category := src.Category
+	if category == "" {
+		category = reviewOutput.Category
+	}
+	normCat := strings.ToLower(strings.TrimSpace(category))
+	if normCat == "emergency" || normCat == "alert" || normCat == "darurat" ||
+		normCat == "market" || normCat == "jisdor" || normCat == "kurs" ||
+		normCat == "crypto" || normCat == "bitcoin" || normCat == "news" {
+
+		cardDetails := reviewOutput.WhyItMatters
+		if cardDetails == "" {
+			cardDetails = reviewOutput.SuggestedPost
+		}
+
+		o.logger.Info("generating card image", "category", category, "title", art.Title)
+		pngBytes, err := cardgen.GenerateCard(category, art.Title, cardDetails, src.Name)
+		if err != nil {
+			o.logger.Error("failed to generate card image", "error", err)
+		} else if o.r2Client != nil {
+			// Upload PNG bytes to Cloudflare R2
+			key := fmt.Sprintf("cards/%s.png", draftID)
+			o.logger.Info("uploading card image to R2", "key", key)
+			publicURL, err := o.r2Client.Upload(ctx, key, pngBytes, "image/png")
+			if err != nil {
+				o.logger.Error("failed to upload card image to R2", "error", err)
+			} else {
+				o.logger.Info("card image uploaded successfully", "url", publicURL)
+				draft.MediaURL = publicURL
+			}
+		}
+	}
+
 	// Determine if auto-approving
 	isAutoApproved := decisionResult.Action == decision.ActionAutoPost
 	if isAutoApproved {
@@ -367,7 +458,36 @@ func (o *Orchestrator) processArticle(ctx context.Context, src models.Source, ar
 	if isAutoApproved && o.postingMode == "auto" {
 		o.logger.Info("auto-publishing approved draft to X", "draft_id", draftID)
 
-		publishRes, err := o.publisher.PublishText(ctx, draft.Content)
+		var publishRes *publisher.PublishResult
+		var err error
+
+		var mediaIDs []string
+		if draft.MediaURL != "" {
+			o.logger.Info("downloading media for auto-publish", "url", draft.MediaURL)
+			mediaBytes, dlErr := o.downloadMediaBytes(ctx, draft.MediaURL)
+			if dlErr != nil {
+				o.logger.Error("failed to download media, falling back to text-only publish", "error", dlErr)
+			} else {
+				if xClient, ok := o.publisher.(*publisher.XClient); ok {
+					uploader := publisher.NewMediaUploader(xClient)
+					o.logger.Info("uploading media to X")
+					mediaID, upErr := uploader.UploadBytes(ctx, mediaBytes, "card.png")
+					if upErr != nil {
+						o.logger.Error("failed to upload media to X, falling back to text-only publish", "error", upErr)
+					} else {
+						o.logger.Info("media uploaded to X successfully", "media_id", mediaID)
+						mediaIDs = []string{mediaID}
+					}
+				}
+			}
+		}
+
+		if len(mediaIDs) > 0 {
+			publishRes, err = o.publisher.PublishWithMedia(ctx, draft.Content, mediaIDs)
+		} else {
+			publishRes, err = o.publisher.PublishText(ctx, draft.Content)
+		}
+
 		if err != nil {
 			o.logger.Error("auto-publish failed", "draft_id", draftID, "error", err)
 			return nil
@@ -381,6 +501,9 @@ func (o *Orchestrator) processArticle(ctx context.Context, src models.Source, ar
 			Content:     draft.Content,
 			PublishedAt: time.Now().UTC(),
 			Status:      publishRes.Status,
+		}
+		if len(mediaIDs) > 0 && draft.MediaURL != "" {
+			pubPost.MediaURLs = []string{draft.MediaURL}
 		}
 		if err := o.store.SavePublished(ctx, pubPost); err != nil {
 			o.logger.Error("failed to save published post record", "draft_id", draftID, "error", err)

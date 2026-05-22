@@ -60,6 +60,8 @@ type DraftPost struct {
 	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
 	// PublishedAt is when the draft was published, if applicable.
 	PublishedAt *time.Time `json:"published_at,omitempty"`
+	// MediaURL is the Cloudflare R2 public URL of the generated image card, if applicable.
+	MediaURL string `json:"media_url,omitempty"`
 }
 
 // PublishStatus represents the result of a publish attempt.

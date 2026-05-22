@@ -80,12 +80,22 @@ func main() {
 	}
 	xClient := publisher.NewXClient(xConfig)
 
+	// Initialize R2 client for media hosting
+	r2Client := storage.NewR2Client(storage.R2Config{
+		Endpoint:        cfg.Cloudflare.R2Endpoint,
+		AccessKeyID:     cfg.Cloudflare.R2AccessKeyID,
+		SecretAccessKey: cfg.Cloudflare.R2SecretAccessKey,
+		BucketMedia:     cfg.Cloudflare.R2BucketMedia,
+		PublicURL:       cfg.Cloudflare.R2PublicURLMedia,
+	})
+
 	// Initialize pipeline Orchestrator
 	orchestrator := pipeline.NewOrchestrator(
 		store,
 		reviewer,
 		engine,
 		xClient,
+		r2Client,
 		log,
 		cfg.Bot.CMCAPIKey,
 		cfg.Bot.PostingMode,

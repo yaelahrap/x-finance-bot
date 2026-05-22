@@ -86,7 +86,8 @@ func (s *SQLiteStore) migrate() error {
 			created_at TEXT NOT NULL,
 			approved_at TEXT,
 			scheduled_at TEXT,
-			published_at TEXT
+			published_at TEXT,
+			media_url TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS published_posts (
 			id TEXT PRIMARY KEY,
@@ -128,6 +129,7 @@ func (s *SQLiteStore) migrate() error {
 	// Idempotent ALTER migrations: tolerate "duplicate column" on existing DBs.
 	addColumnMigrations := []string{
 		`ALTER TABLE draft_posts ADD COLUMN scheduled_at TEXT`,
+		`ALTER TABLE draft_posts ADD COLUMN media_url TEXT`,
 	}
 	for _, m := range addColumnMigrations {
 		if _, err := s.db.Exec(m); err != nil && !strings.Contains(err.Error(), "duplicate column") {
@@ -224,8 +226,8 @@ func (s *SQLiteStore) UpdateArticleStatus(ctx context.Context, id string, status
 
 func (s *SQLiteStore) SaveDraft(ctx context.Context, draft models.DraftPost) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO draft_posts (id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO draft_posts (id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at, media_url)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		draft.ID, draft.ArticleID, string(draft.PostType), draft.Content,
 		draft.ThreadJSON, draft.ScoreJSON, draft.ReviewJSON,
 		string(draft.Status), draft.RequiresManualApproval,
@@ -233,13 +235,14 @@ func (s *SQLiteStore) SaveDraft(ctx context.Context, draft models.DraftPost) err
 		formatTimePtr(draft.ApprovedAt),
 		formatTimePtr(draft.ScheduledAt),
 		formatTimePtr(draft.PublishedAt),
+		draft.MediaURL,
 	)
 	return err
 }
 
 func (s *SQLiteStore) GetPendingDrafts(ctx context.Context) ([]models.DraftPost, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at, media_url
 		 FROM draft_posts WHERE status = ? ORDER BY created_at DESC`,
 		string(models.DraftStatusPending))
 	if err != nil {
@@ -260,7 +263,7 @@ func (s *SQLiteStore) GetPendingDrafts(ctx context.Context) ([]models.DraftPost,
 
 func (s *SQLiteStore) GetDraftByID(ctx context.Context, id string) (*models.DraftPost, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at, media_url
 		 FROM draft_posts WHERE id = ?`, id)
 	return scanDraft(row)
 }
@@ -300,7 +303,7 @@ func (s *SQLiteStore) GetDraftsByStatus(ctx context.Context, status models.Draft
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at, media_url
 		 FROM draft_posts WHERE status = ? ORDER BY created_at DESC LIMIT ?`,
 		string(status), limit)
 	if err != nil {
@@ -322,7 +325,7 @@ func (s *SQLiteStore) GetDraftsByStatus(ctx context.Context, status models.Draft
 // GetDueScheduledDrafts returns scheduled drafts whose scheduled_at is at or before "before".
 func (s *SQLiteStore) GetDueScheduledDrafts(ctx context.Context, before time.Time) ([]models.DraftPost, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at
+		`SELECT id, article_id, post_type, content, thread_json, score_json, review_json, status, requires_manual_approval, created_at, approved_at, scheduled_at, published_at, media_url
 		 FROM draft_posts WHERE status = ? AND scheduled_at IS NOT NULL AND scheduled_at <= ? ORDER BY scheduled_at ASC`,
 		string(models.DraftStatusScheduled), formatTime(before.UTC()))
 	if err != nil {
@@ -601,11 +604,12 @@ func scanDraft(row *sql.Row) (*models.DraftPost, error) {
 	var createdAt string
 	var approvedAt, scheduledAt, publishedAt sql.NullString
 	var postType, status string
+	var mediaURL sql.NullString
 
 	err := row.Scan(&d.ID, &articleID, &postType, &d.Content,
 		&threadJSON, &scoreJSON, &reviewJSON,
 		&status, &d.RequiresManualApproval, &createdAt,
-		&approvedAt, &scheduledAt, &publishedAt)
+		&approvedAt, &scheduledAt, &publishedAt, &mediaURL)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -640,6 +644,9 @@ func scanDraft(row *sql.Row) (*models.DraftPost, error) {
 		s := publishedAt.String
 		d.PublishedAt = parseTimePtr(&s)
 	}
+	if mediaURL.Valid {
+		d.MediaURL = mediaURL.String
+	}
 	return &d, nil
 }
 
@@ -650,11 +657,12 @@ func scanDraftRow(rows *sql.Rows) (*models.DraftPost, error) {
 	var createdAt string
 	var approvedAt, scheduledAt, publishedAt sql.NullString
 	var postType, status string
+	var mediaURL sql.NullString
 
 	err := rows.Scan(&d.ID, &articleID, &postType, &d.Content,
 		&threadJSON, &scoreJSON, &reviewJSON,
 		&status, &d.RequiresManualApproval, &createdAt,
-		&approvedAt, &scheduledAt, &publishedAt)
+		&approvedAt, &scheduledAt, &publishedAt, &mediaURL)
 	if err != nil {
 		return nil, err
 	}
@@ -685,6 +693,9 @@ func scanDraftRow(rows *sql.Rows) (*models.DraftPost, error) {
 	if publishedAt.Valid {
 		s := publishedAt.String
 		d.PublishedAt = parseTimePtr(&s)
+	}
+	if mediaURL.Valid {
+		d.MediaURL = mediaURL.String
 	}
 	return &d, nil
 }
