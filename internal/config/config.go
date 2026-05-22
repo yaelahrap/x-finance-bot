@@ -50,6 +50,15 @@ type XConfig struct {
 	BearerToken  string
 }
 
+// BufferConfig holds credentials for publishing via Buffer.com GraphQL API.
+type BufferConfig struct {
+	// APIKey is the Buffer bearer token from https://publish.buffer.com/settings/api
+	APIKey string
+	// ChannelID is the Buffer channel ID for the connected X/Twitter account.
+	// Defaults to the yrapyy X account channel.
+	ChannelID string
+}
+
 // CloudflareConfig holds Cloudflare account + R2 storage settings.
 type CloudflareConfig struct {
 	AccountID           string
@@ -88,6 +97,7 @@ type Config struct {
 	App        AppConfig
 	AI         AIConfig
 	X          XConfig
+	Buffer     BufferConfig
 	Cloudflare CloudflareConfig
 	Database   DatabaseConfig
 	Bot        BotConfig
@@ -123,6 +133,8 @@ const (
 	defaultMinAutoPostScore   = 42
 	defaultR2BucketMedia      = "x-info-bot-media"
 	defaultR2BucketArchives   = "x-info-bot-archives"
+	// defaultBufferChannelID is the Buffer channel ID for the yrapyy X account.
+	defaultBufferChannelID    = "6a10a773090476fb994c0c06"
 )
 
 // Load reads configuration from the process environment, optionally seeded by a
@@ -171,6 +183,10 @@ func Load() (*Config, error) {
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", defaultDatabaseURL),
+		},
+		Buffer: BufferConfig{
+			APIKey:    getEnv("BUFFER_API_KEY", ""),
+			ChannelID: getEnv("BUFFER_CHANNEL_ID", defaultBufferChannelID),
 		},
 		Bot: BotConfig{
 			PostingMode:      getEnv("POSTING_MODE", defaultPostingMode),

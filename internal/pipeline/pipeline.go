@@ -246,12 +246,13 @@ func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) err
 
 	var mediaIDs []string
 	if d.MediaURL != "" {
-		o.logger.Info("downloading media for publish", "url", d.MediaURL)
-		mediaBytes, dlErr := o.downloadMediaBytes(ctx, d.MediaURL)
-		if dlErr != nil {
-			o.logger.Error("failed to download media, falling back to text-only publish", "error", dlErr)
-		} else {
-			if xClient, ok := o.publisher.(*publisher.XClient); ok {
+		// XClient requires binary upload; Buffer (and others) accept a public URL directly.
+		if xClient, ok := o.publisher.(*publisher.XClient); ok {
+			o.logger.Info("downloading media for X upload", "url", d.MediaURL)
+			mediaBytes, dlErr := o.downloadMediaBytes(ctx, d.MediaURL)
+			if dlErr != nil {
+				o.logger.Error("failed to download media, falling back to text-only publish", "error", dlErr)
+			} else {
 				uploader := publisher.NewMediaUploader(xClient)
 				o.logger.Info("uploading media to X")
 				mediaID, upErr := uploader.UploadBytes(ctx, mediaBytes, "card.png")
@@ -262,6 +263,10 @@ func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) err
 					mediaIDs = []string{mediaID}
 				}
 			}
+		} else {
+			// Buffer and other publishers: pass the public R2 URL directly.
+			o.logger.Info("attaching media URL for publisher", "url", d.MediaURL)
+			mediaIDs = []string{d.MediaURL}
 		}
 	}
 

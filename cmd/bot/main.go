@@ -71,14 +71,21 @@ func main() {
 	policy.MinAutoPostScore = cfg.Bot.MinAutoPostScore
 	engine := decision.NewEngine(policy)
 
-	// Initialize X publisher
-	xConfig := publisher.XClientConfig{
-		APIKey:       cfg.X.APIKey,
-		APISecret:    cfg.X.APISecret,
-		AccessToken:  cfg.X.AccessToken,
-		AccessSecret: cfg.X.AccessSecret,
+	// Initialize publisher — prefer Buffer API if key is set, fall back to X API.
+	var pub publisher.Publisher
+	if cfg.Buffer.APIKey != "" {
+		pub = publisher.NewBufferClient(cfg.Buffer.APIKey, cfg.Buffer.ChannelID)
+		log.Info("using Buffer API as publisher", "channel_id", cfg.Buffer.ChannelID)
+	} else {
+		xConfig := publisher.XClientConfig{
+			APIKey:       cfg.X.APIKey,
+			APISecret:    cfg.X.APISecret,
+			AccessToken:  cfg.X.AccessToken,
+			AccessSecret: cfg.X.AccessSecret,
+		}
+		pub = publisher.NewXClient(xConfig)
+		log.Info("using X API directly as publisher")
 	}
-	xClient := publisher.NewXClient(xConfig)
 
 	// Initialize R2 client for media hosting
 	r2Client := storage.NewR2Client(storage.R2Config{
@@ -94,7 +101,7 @@ func main() {
 		store,
 		reviewer,
 		engine,
-		xClient,
+		pub,
 		r2Client,
 		log,
 		cfg.Bot.CMCAPIKey,
@@ -135,7 +142,7 @@ func main() {
 		AdminAPIKey:    cfg.Bot.AdminAPIKey,
 		AllowedOrigins: []string{"*"},
 		Store:          store,
-		Publisher:      xClient,
+		Publisher:      pub,
 		PublishNow:     orchestrator,
 		Logger:         log,
 	})
