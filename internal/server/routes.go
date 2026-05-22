@@ -129,7 +129,8 @@ func handleRejectDraft(store storage.Storage, logger *slog.Logger) http.HandlerF
 
 func handleGetPublished(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		posts, err := store.GetPublishedPosts(r.Context(), 50, 0)
+		limit := parseLimit(r.URL.Query().Get("limit"), 50)
+		posts, err := store.GetPublishedPosts(r.Context(), limit, 0)
 		if err != nil {
 			logger.Error("get published", "error", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get published posts"})
