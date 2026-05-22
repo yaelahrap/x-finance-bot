@@ -23,10 +23,21 @@ type AppConfig struct {
 	BaseURL string
 }
 
-// AnthropicConfig holds Claude API credentials and model selection.
-type AnthropicConfig struct {
+// AIConfig holds AI provider credentials and model selection.
+//
+// Two providers are supported:
+//   - "anthropic": native Anthropic Messages API (default)
+//   - "openai":    any OpenAI-compatible Chat Completions endpoint (9Router, vLLM, OpenRouter, etc.)
+type AIConfig struct {
+	// Provider is "anthropic" or "openai". Default: "anthropic".
+	Provider string
+	// BaseURL overrides the default API endpoint. For Anthropic the default is
+	// https://api.anthropic.com. For OpenAI-compatible providers, this should
+	// be set to the full base URL (e.g. https://api.raflyrama.dev/v1).
+	BaseURL string
+	// APIKey is the bearer/API key for the chosen provider.
 	APIKey string
-	// Model is the Anthropic model identifier (default: claude-sonnet-4-5).
+	// Model is the model identifier (default: claude-sonnet-4-5).
 	Model string
 }
 
@@ -71,7 +82,7 @@ type BotConfig struct {
 // Config is the typed, validated configuration for the entire bot.
 type Config struct {
 	App        AppConfig
-	Anthropic  AnthropicConfig
+	AI         AIConfig
 	X          XConfig
 	Cloudflare CloudflareConfig
 	Database   DatabaseConfig
@@ -90,16 +101,24 @@ const (
 	PostingModeAuto     = "auto"
 )
 
+// AI provider constants.
+const (
+	AIProviderAnthropic = "anthropic"
+	AIProviderOpenAI    = "openai"
+)
+
 // Defaults.
 const (
-	defaultAppEnv           = "development"
-	defaultAppPort          = 8080
-	defaultAnthropicModel   = "claude-sonnet-4-5"
-	defaultDatabaseURL      = "file:./data/bot.db?cache=shared&_journal=WAL"
-	defaultPostingMode      = PostingModeManual
-	defaultMinAutoPostScore = 42
-	defaultR2BucketMedia    = "x-info-bot-media"
-	defaultR2BucketArchives = "x-info-bot-archives"
+	defaultAppEnv             = "development"
+	defaultAppPort            = 8080
+	defaultAIProvider         = AIProviderAnthropic
+	defaultAIModel            = "claude-sonnet-4-5"
+	defaultAnthropicBaseURL   = "https://api.anthropic.com"
+	defaultDatabaseURL        = "file:./data/bot.db?cache=shared&_journal=WAL"
+	defaultPostingMode        = PostingModeManual
+	defaultMinAutoPostScore   = 42
+	defaultR2BucketMedia      = "x-info-bot-media"
+	defaultR2BucketArchives   = "x-info-bot-archives"
 )
 
 // Load reads configuration from the process environment, optionally seeded by a
@@ -119,9 +138,15 @@ func Load() (*Config, error) {
 			Port:    getEnvInt("APP_PORT", defaultAppPort),
 			BaseURL: getEnv("APP_BASE_URL", ""),
 		},
-		Anthropic: AnthropicConfig{
-			APIKey: getEnv("ANTHROPIC_API_KEY", ""),
-			Model:  getEnv("ANTHROPIC_MODEL", defaultAnthropicModel),
+		AI: AIConfig{
+			Provider: getEnv("AI_PROVIDER", defaultAIProvider),
+			// Prefer AI_BASE_URL; fall back to ANTHROPIC_BASE_URL for legacy.
+			// Default is provider-dependent and resolved below.
+			BaseURL: getEnv("AI_BASE_URL", getEnv("ANTHROPIC_BASE_URL", "")),
+			// Prefer AI_API_KEY; fall back to ANTHROPIC_API_KEY for backward compat.
+			APIKey: getEnv("AI_API_KEY", getEnv("ANTHROPIC_API_KEY", "")),
+			// Prefer AI_MODEL; fall back to ANTHROPIC_MODEL.
+			Model: getEnv("AI_MODEL", getEnv("ANTHROPIC_MODEL", defaultAIModel)),
 		},
 		X: XConfig{
 			APIKey:       getEnv("X_API_KEY", ""),
@@ -148,6 +173,11 @@ func Load() (*Config, error) {
 		},
 	}
 
+	// Resolve provider-specific defaults for BaseURL.
+	if cfg.AI.BaseURL == "" && cfg.AI.Provider == AIProviderAnthropic {
+		cfg.AI.BaseURL = defaultAnthropicBaseURL
+	}
+
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -159,8 +189,8 @@ func (c *Config) validate() error {
 	var missing []string
 
 	// Always-required variables.
-	if c.Anthropic.APIKey == "" {
-		missing = append(missing, "ANTHROPIC_API_KEY")
+	if c.AI.APIKey == "" {
+		missing = append(missing, "AI_API_KEY (or ANTHROPIC_API_KEY)")
 	}
 	if c.Bot.AdminAPIKey == "" {
 		missing = append(missing, "ADMIN_API_KEY")
@@ -207,6 +237,18 @@ func (c *Config) validate() error {
 	default:
 		return fmt.Errorf("invalid POSTING_MODE %q: expected one of %q, %q, %q",
 			c.Bot.PostingMode, PostingModeManual, PostingModeSemiAuto, PostingModeAuto)
+	}
+
+	switch c.AI.Provider {
+	case AIProviderAnthropic, AIProviderOpenAI:
+		// ok
+	default:
+		return fmt.Errorf("invalid AI_PROVIDER %q: expected %q or %q",
+			c.AI.Provider, AIProviderAnthropic, AIProviderOpenAI)
+	}
+
+	if c.AI.Provider == AIProviderOpenAI && c.AI.BaseURL == "" {
+		return fmt.Errorf("AI_BASE_URL is required when AI_PROVIDER=%q", AIProviderOpenAI)
 	}
 
 	if c.App.Port <= 0 || c.App.Port > 65535 {
