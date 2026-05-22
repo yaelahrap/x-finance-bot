@@ -52,12 +52,14 @@ type XConfig struct {
 
 // CloudflareConfig holds Cloudflare account + R2 storage settings.
 type CloudflareConfig struct {
-	AccountID         string
-	R2AccessKeyID     string
-	R2SecretAccessKey string
-	R2BucketMedia     string
-	R2BucketArchives  string
-	R2Endpoint        string
+	AccountID           string
+	R2AccessKeyID       string
+	R2SecretAccessKey   string
+	R2BucketMedia       string
+	R2BucketArchives    string
+	R2Endpoint          string
+	R2PublicURLMedia    string
+	R2PublicURLArchives string
 }
 
 // DatabaseConfig holds the database DSN.
@@ -158,12 +160,14 @@ func Load() (*Config, error) {
 			BearerToken:  getEnv("X_BEARER_TOKEN", ""),
 		},
 		Cloudflare: CloudflareConfig{
-			AccountID:         getEnv("CLOUDFLARE_ACCOUNT_ID", ""),
-			R2AccessKeyID:     getEnv("CLOUDFLARE_R2_ACCESS_KEY_ID", ""),
-			R2SecretAccessKey: getEnv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
-			R2BucketMedia:     getEnv("CLOUDFLARE_R2_BUCKET_MEDIA", defaultR2BucketMedia),
-			R2BucketArchives:  getEnv("CLOUDFLARE_R2_BUCKET_ARCHIVES", defaultR2BucketArchives),
-			R2Endpoint:        getEnv("CLOUDFLARE_R2_ENDPOINT", ""),
+			AccountID:           getEnv("CLOUDFLARE_ACCOUNT_ID", ""),
+			R2AccessKeyID:       getEnv("CLOUDFLARE_R2_ACCESS_KEY_ID", ""),
+			R2SecretAccessKey:   getEnv("CLOUDFLARE_R2_SECRET_ACCESS_KEY", ""),
+			R2BucketMedia:       getEnv("CLOUDFLARE_R2_BUCKET_MEDIA", defaultR2BucketMedia),
+			R2BucketArchives:    getEnv("CLOUDFLARE_R2_BUCKET_ARCHIVES", defaultR2BucketArchives),
+			R2Endpoint:          getEnv("CLOUDFLARE_R2_ENDPOINT", ""),
+			R2PublicURLMedia:    getEnv("CLOUDFLARE_R2_PUBLIC_URL_MEDIA", ""),
+			R2PublicURLArchives: getEnv("CLOUDFLARE_R2_PUBLIC_URL_ARCHIVES", ""),
 		},
 		Database: DatabaseConfig{
 			URL: getEnv("DATABASE_URL", defaultDatabaseURL),

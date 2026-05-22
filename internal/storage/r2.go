@@ -15,6 +15,7 @@ type R2Client struct {
 	accessKeyID string
 	secretKey   string
 	bucketMedia string
+	publicURL   string
 	httpClient  *http.Client
 }
 
@@ -22,8 +23,9 @@ type R2Client struct {
 type R2Config struct {
 	Endpoint        string
 	AccessKeyID     string
-	SecretAccessKey  string
+	SecretAccessKey string
 	BucketMedia     string
+	PublicURL       string
 }
 
 // NewR2Client creates a new Cloudflare R2 client.
@@ -33,15 +35,16 @@ func NewR2Client(cfg R2Config) *R2Client {
 		accessKeyID: cfg.AccessKeyID,
 		secretKey:   cfg.SecretAccessKey,
 		bucketMedia: cfg.BucketMedia,
+		publicURL:   cfg.PublicURL,
 		httpClient:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
 // Upload stores data in R2 at the given object key and returns the public URL.
 func (r *R2Client) Upload(ctx context.Context, key string, data []byte, contentType string) (string, error) {
-	url := fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucketMedia, key)
+	uploadURL := fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucketMedia, key)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, uploadURL, bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("r2 upload create request: %w", err)
 	}
@@ -63,11 +66,14 @@ func (r *R2Client) Upload(ctx context.Context, key string, data []byte, contentT
 		return "", fmt.Errorf("r2 upload failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	return url, nil
+	return r.ObjectURL(key), nil
 }
 
 // ObjectURL returns the public URL for an object in the media bucket.
 func (r *R2Client) ObjectURL(key string) string {
+	if r.publicURL != "" {
+		return fmt.Sprintf("%s/%s", r.publicURL, key)
+	}
 	return fmt.Sprintf("%s/%s/%s", r.endpoint, r.bucketMedia, key)
 }
 
