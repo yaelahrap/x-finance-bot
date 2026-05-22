@@ -4,7 +4,7 @@ module.exports = {
       name: "x-finance-bot",
       script: "./x-finance-bot",
       // Pastikan PM2 menjalankan binary dari direktori yang benar
-      cwd: "/path/to/your/app/directory", 
+      cwd: "/root/bot/x-finance-bot", 
       // Argumen jika ada (Go binary biasanya tidak butuh kalau pakai .env)
       args: "",
       instances: 1,
