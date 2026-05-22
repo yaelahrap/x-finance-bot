@@ -163,6 +163,31 @@ func (o *Orchestrator) ProcessBMKGAlerts(ctx context.Context) error {
 	return nil
 }
 
+// PublishDraftNow publishes a single draft immediately, bypassing scheduling.
+// Returns the published record. Caller is responsible for ensuring the draft
+// is in an appropriate state (approved or scheduled) before calling.
+func (o *Orchestrator) PublishDraftNow(ctx context.Context, draftID string) (*models.PublishedPost, error) {
+	d, err := o.store.GetDraftByID(ctx, draftID)
+	if err != nil {
+		return nil, fmt.Errorf("get draft: %w", err)
+	}
+	if d == nil {
+		return nil, fmt.Errorf("draft %s not found", draftID)
+	}
+	if d.Status == models.DraftStatusPublished {
+		return nil, fmt.Errorf("draft %s already published", draftID)
+	}
+	if d.Status == models.DraftStatusRejected {
+		return nil, fmt.Errorf("draft %s is rejected", draftID)
+	}
+
+	if err := o.publishDraft(ctx, *d); err != nil {
+		return nil, err
+	}
+
+	return o.store.GetPublishedByDraftID(ctx, draftID)
+}
+
 // ProcessScheduledDrafts publishes any drafts whose scheduled_at is at or
 // before now, as well as manually approved drafts that are ready to publish immediately.
 // Failures are logged but do not abort the loop so a single bad

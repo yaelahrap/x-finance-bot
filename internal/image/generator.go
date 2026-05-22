@@ -161,7 +161,7 @@ func GenerateCard(category string, title string, details string, source string) 
 	drawText(img, badgeText, 80+16, 80+24, badgeFace, color.RGBA{255, 255, 255, 255})
 
 	// Render Branding (Top Right)
-	brandingText := "X-FINANCE BOT"
+	brandingText := "Before Tomorrow"
 	brandWidth := measureTextWidth(badgeFace, brandingText)
 	drawText(img, brandingText, 1200-80-brandWidth, 80+24, badgeFace, color.RGBA{148, 163, 184, 255}) // Slate 400
 

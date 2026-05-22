@@ -72,6 +72,8 @@ const (
 	PublishStatusSuccess PublishStatus = "success"
 	// PublishStatusFailed indicates the publish attempt failed.
 	PublishStatusFailed PublishStatus = "failed"
+	// PublishStatusDeleted indicates the post was published but later removed from X.
+	PublishStatusDeleted PublishStatus = "deleted"
 )
 
 // PublishedPost is the record of a draft that was sent to X.

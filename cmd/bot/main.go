@@ -135,6 +135,8 @@ func main() {
 		AdminAPIKey:    cfg.Bot.AdminAPIKey,
 		AllowedOrigins: []string{"*"},
 		Store:          store,
+		Publisher:      xClient,
+		PublishNow:     orchestrator,
 		Logger:         log,
 	})
 

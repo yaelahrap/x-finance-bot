@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -9,11 +10,17 @@ import (
 	"time"
 
 	"github.com/raflyramadhan/x-finance-bot/internal/models"
+	"github.com/raflyramadhan/x-finance-bot/internal/publisher"
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
 )
 
+// PublishNow publishes an approved or scheduled draft immediately.
+type PublishNow interface {
+	PublishDraftNow(ctx context.Context, draftID string) (*models.PublishedPost, error)
+}
+
 // Routes registers all HTTP routes on the given mux.
-func Routes(mux *http.ServeMux, store storage.Storage, logger *slog.Logger) {
+func Routes(mux *http.ServeMux, store storage.Storage, pub publisher.Publisher, publisher PublishNow, logger *slog.Logger) {
 	mux.HandleFunc("GET /health", handleHealth)
 	mux.HandleFunc("GET /api/stats", handleGetStats(store, logger))
 	mux.HandleFunc("GET /api/drafts", handleGetDrafts(store, logger))
@@ -21,8 +28,11 @@ func Routes(mux *http.ServeMux, store storage.Storage, logger *slog.Logger) {
 	mux.HandleFunc("POST /api/drafts/{id}/approve", handleApproveDraft(store, logger))
 	mux.HandleFunc("POST /api/drafts/{id}/reject", handleRejectDraft(store, logger))
 	mux.HandleFunc("POST /api/drafts/{id}/schedule", handleScheduleDraft(store, logger))
+	mux.HandleFunc("POST /api/drafts/{id}/unschedule", handleUnscheduleDraft(store, logger))
+	mux.HandleFunc("POST /api/drafts/{id}/publish", handlePublishDraftNow(publisher, logger))
 	mux.HandleFunc("GET /api/articles", handleGetArticles(store, logger))
 	mux.HandleFunc("GET /api/published", handleGetPublished(store, logger))
+	mux.HandleFunc("DELETE /api/published/{id}", handleDeletePublished(store, pub, logger))
 	mux.HandleFunc("GET /api/sources", handleGetSources(store, logger))
 	mux.HandleFunc("POST /api/sources", handleCreateSource(store, logger))
 	mux.HandleFunc("GET /api/market/{symbol}", handleGetMarket(store, logger))
@@ -245,6 +255,47 @@ func handleScheduleDraft(store storage.Storage, logger *slog.Logger) http.Handle
 	}
 }
 
+func handleUnscheduleDraft(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing draft id"})
+			return
+		}
+		if err := store.UpdateDraftStatus(r.Context(), id, models.DraftStatusApproved); err != nil {
+			logger.Error("unschedule draft", "error", err, "id", id)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to unschedule draft"})
+			return
+		}
+		logger.Info("draft unscheduled", "id", id)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "approved", "id": id})
+	}
+}
+
+func handlePublishDraftNow(p PublishNow, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing draft id"})
+			return
+		}
+		if p == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "publisher not configured"})
+			return
+		}
+
+		published, err := p.PublishDraftNow(r.Context(), id)
+		if err != nil {
+			logger.Error("publish now", "error", err, "id", id)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+
+		logger.Info("draft published immediately", "id", id)
+		writeJSON(w, http.StatusOK, published)
+	}
+}
+
 func handleGetArticles(store storage.Storage, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit := parseLimit(r.URL.Query().Get("limit"), 50)
@@ -282,6 +333,54 @@ func parseLimit(raw string, fallback int) int {
 		return 500
 	}
 	return n
+}
+
+func handleDeletePublished(store storage.Storage, pub publisher.Publisher, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing published id"})
+			return
+		}
+
+		post, err := store.GetPublishedByID(r.Context(), id)
+		if err != nil {
+			logger.Error("get published", "error", err, "id", id)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to look up post"})
+			return
+		}
+		if post == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "post not found"})
+			return
+		}
+		if post.Status == models.PublishStatusDeleted {
+			writeJSON(w, http.StatusOK, map[string]string{"status": "already_deleted", "id": id})
+			return
+		}
+		if post.XPostID == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "post has no x_post_id, nothing to delete on X"})
+			return
+		}
+		if pub == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "publisher not configured"})
+			return
+		}
+
+		if err := pub.DeletePost(r.Context(), post.XPostID); err != nil {
+			logger.Error("delete post on X", "error", err, "x_post_id", post.XPostID)
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "X API delete failed: " + err.Error()})
+			return
+		}
+
+		if err := store.MarkPublishedDeleted(r.Context(), id); err != nil {
+			logger.Error("mark published deleted", "error", err, "id", id)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "deleted on X but failed to update local record"})
+			return
+		}
+
+		logger.Info("published post deleted", "id", id, "x_post_id", post.XPostID)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "id": id, "x_post_id": post.XPostID})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {

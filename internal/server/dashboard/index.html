@@ -1,252 +1,431 @@
 <!DOCTYPE html>
-<html lang="en" class="bg-slate-950">
+<html lang="en" class="bg-zinc-950">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>x-finance-bot · monitoring</title>
+  <title>Before Tomorrow · console</title>
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>🇮🇩</text></svg>">
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root { color-scheme: dark; }
     [x-cloak] { display: none !important; }
-    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-    .scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-    .scrollbar::-webkit-scrollbar-track { background: #1e293b; }
-    .scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
-    .scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 5px; }
+    .scrollbar::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+    .pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+    .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-200 min-h-screen">
+<body class="bg-zinc-950 text-zinc-100 min-h-screen">
 
-<div x-data="dashboard()" x-init="init()" x-cloak class="max-w-7xl mx-auto p-6">
+<div x-data="dashboard()" x-init="init()" x-cloak>
 
-  <!-- Auth gate -->
+  <!-- Login -->
   <template x-if="!authed">
-    <div class="max-w-md mx-auto mt-32 bg-slate-900 border border-slate-800 rounded-xl p-8">
-      <h1 class="text-2xl font-bold mb-2">x-finance-bot</h1>
-      <p class="text-slate-400 mb-6 text-sm">Enter your admin API key to continue.</p>
-      <form @submit.prevent="login()">
-        <input type="password" x-model="apiKeyInput" placeholder="ADMIN_API_KEY"
-               class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-emerald-500" autofocus>
-        <button class="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-lg py-2 text-sm transition">
-          Sign in
-        </button>
-        <p x-show="loginError" x-text="loginError" class="mt-3 text-sm text-rose-400"></p>
-      </form>
+    <div class="min-h-screen flex items-center justify-center p-4">
+      <div class="w-full max-w-md">
+        <div class="text-center mb-8">
+          <div class="text-5xl mb-3">🇮🇩</div>
+          <h1 class="text-3xl font-bold tracking-tight">Before Tomorrow</h1>
+          <p class="text-zinc-500 text-sm mt-1">Indonesia-aware breaking info console</p>
+        </div>
+        <div class="bg-zinc-900/60 backdrop-blur border border-zinc-800 rounded-2xl p-7 shadow-2xl">
+          <form @submit.prevent="login()">
+            <label class="block text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Admin API Key</label>
+            <input type="password" x-model="apiKeyInput" placeholder="••••••••••••••"
+                   class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-3 text-sm font-mono focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition" autofocus>
+            <button class="mt-4 w-full bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold rounded-lg py-3 text-sm transition">Continue →</button>
+            <p x-show="loginError" x-text="loginError" class="mt-3 text-sm text-rose-400 text-center"></p>
+          </form>
+        </div>
+        <p class="text-center text-xs text-zinc-600 mt-6">Session stored in browser only</p>
+      </div>
     </div>
   </template>
 
-  <!-- Main app -->
+  <!-- App shell -->
   <template x-if="authed">
-    <div>
+    <div class="flex min-h-screen">
 
-      <!-- Header -->
-      <header class="flex items-center justify-between mb-6">
-        <div>
-          <h1 class="text-2xl font-bold tracking-tight">x-finance-bot</h1>
-          <p class="text-sm text-slate-500" x-text="lastRefresh ? 'Last refresh: ' + relativeTime(lastRefresh) : 'Loading...'"></p>
-        </div>
-        <div class="flex gap-2">
-          <button @click="refresh()" :disabled="loading"
-                  class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50">
-            <span x-show="!loading">Refresh</span>
-            <span x-show="loading">Loading...</span>
-          </button>
-          <button @click="logout()"
-                  class="px-3 py-1.5 text-sm rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      <!-- Stats grid -->
-      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
-        <template x-for="card in statCards" :key="card.key">
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <div class="text-xs uppercase tracking-wider text-slate-500" x-text="card.label"></div>
-            <div class="text-2xl font-bold mt-1" :class="card.cls" x-text="stats[card.key] ?? 0"></div>
+      <!-- Sidebar -->
+      <aside class="hidden md:flex md:w-60 lg:w-64 flex-col bg-zinc-900/40 border-r border-zinc-800/80 sticky top-0 h-screen">
+        <div class="px-5 py-5 border-b border-zinc-800/80">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">🇮🇩</span>
+            <div class="min-w-0">
+              <div class="font-bold text-sm tracking-tight truncate">Before Tomorrow</div>
+              <div class="text-[11px] text-zinc-500 truncate">monitoring console</div>
+            </div>
           </div>
-        </template>
-      </div>
-
-      <!-- Tabs -->
-      <div class="flex gap-1 border-b border-slate-800 mb-4 overflow-x-auto scrollbar">
-        <template x-for="tab in tabs" :key="tab.id">
-          <button @click="activeTab = tab.id"
-                  :class="activeTab === tab.id ? 'border-emerald-500 text-emerald-400' : 'border-transparent text-slate-400 hover:text-slate-200'"
-                  class="px-4 py-2 text-sm border-b-2 -mb-px font-medium whitespace-nowrap transition">
-            <span x-text="tab.label"></span>
-            <span x-show="tab.count !== undefined && tab.count > 0"
-                  class="ml-2 inline-block bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded-full"
-                  x-text="tab.count"></span>
-          </button>
-        </template>
-      </div>
-
-      <!-- Drafts tab (pending/approved/scheduled/rejected) -->
-      <template x-if="['pending','approved','scheduled','rejected'].includes(activeTab)">
-        <div class="space-y-3">
-          <template x-if="!drafts.length">
-            <p class="text-slate-500 text-sm py-8 text-center">No <span x-text="activeTab"></span> drafts.</p>
+        </div>
+        <nav class="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto scrollbar">
+          <template x-for="group in navGroups" :key="group.title">
+            <div class="mb-3">
+              <div class="px-3 mt-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500" x-text="group.title"></div>
+              <template x-for="tab in group.items" :key="tab.id">
+                <button @click="activeTab = tab.id"
+                        :class="activeTab === tab.id ? 'bg-zinc-800/70 text-white' : 'text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200'"
+                        class="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm rounded-lg transition">
+                  <span class="flex items-center gap-2.5 min-w-0">
+                    <span class="text-base shrink-0" x-text="tab.icon"></span>
+                    <span class="truncate" x-text="tab.label"></span>
+                  </span>
+                  <span x-show="tab.count > 0"
+                        :class="activeTab === tab.id ? 'bg-emerald-500/20 text-emerald-300' : 'bg-zinc-800 text-zinc-400'"
+                        class="text-[11px] font-mono px-1.5 py-0.5 rounded shrink-0"
+                        x-text="tab.count > 999 ? '999+' : tab.count"></span>
+                </button>
+              </template>
+            </div>
           </template>
-          <template x-for="draft in drafts" :key="draft.id">
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <div class="flex items-start justify-between gap-4 mb-2">
-                <div class="flex items-center gap-2 text-xs text-slate-500">
-                  <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700" x-text="draft.post_type"></span>
-                  <span :class="riskClass(parseReview(draft).risk_level)" class="px-2 py-0.5 rounded border"
-                        x-text="'risk: ' + (parseReview(draft).risk_level || '?')"></span>
-                  <span x-text="'score: ' + (parseScore(draft).total_score ?? '?')"></span>
-                  <span x-show="draft.requires_manual_approval" class="text-amber-400">manual</span>
-                </div>
-                <div class="text-xs text-slate-500" x-text="formatTime(draft.created_at)"></div>
+        </nav>
+        <div class="border-t border-zinc-800/80 p-3">
+          <div class="flex items-center gap-2 px-2 py-1.5 mb-2 rounded-lg">
+            <div class="w-2 h-2 rounded-full bg-emerald-400 pulse-soft"></div>
+            <div class="text-xs text-zinc-400" x-text="lastRefresh ? 'Live · ' + relativeTime(lastRefresh) : 'Loading...'"></div>
+          </div>
+          <button @click="logout()" class="w-full text-left px-3 py-2 text-xs text-zinc-500 hover:text-rose-400 hover:bg-zinc-800/40 rounded-lg transition">Sign out →</button>
+        </div>
+      </aside>
+
+      <!-- Mobile header -->
+      <div class="md:hidden fixed top-0 inset-x-0 z-30 bg-zinc-900/90 backdrop-blur border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🇮🇩</span>
+          <div class="font-bold text-sm">Before Tomorrow</div>
+        </div>
+        <select x-model="activeTab" class="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs">
+          <template x-for="tab in flatTabs" :key="tab.id">
+            <option :value="tab.id" x-text="tab.icon + ' ' + tab.label + (tab.count > 0 ? ' (' + tab.count + ')' : '')"></option>
+          </template>
+        </select>
+      </div>
+
+      <!-- Main -->
+      <main class="flex-1 min-w-0 pt-14 md:pt-0">
+        <div class="max-w-6xl mx-auto px-4 md:px-8 py-6">
+          <div class="flex items-start justify-between gap-4 mb-6">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight" x-text="currentTab ? currentTab.label : ''"></h1>
+              <p class="text-sm text-zinc-500 mt-0.5" x-text="tabDescriptions[activeTab] || ''"></p>
+            </div>
+            <button @click="refresh()" :disabled="loading" :class="loading ? 'opacity-50 cursor-wait' : ''"
+                    class="px-3 py-2 text-xs rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center gap-2 transition shrink-0">
+              <svg :class="loading ? 'animate-spin' : ''" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              <span x-text="loading ? 'Refreshing' : 'Refresh'"></span>
+            </button>
+          </div>
+
+          <!-- Overview -->
+          <template x-if="activeTab === 'overview'">
+            <div class="space-y-6">
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button @click="activeTab = 'pending'" class="text-left bg-gradient-to-br from-amber-950/40 to-zinc-900/60 border border-amber-900/30 rounded-xl p-4 hover:border-amber-700/50 transition">
+                  <div class="text-[11px] uppercase tracking-wider text-amber-400 font-semibold">Awaiting review</div>
+                  <div class="text-3xl font-bold mt-1 text-amber-300" x-text="stats.drafts_pending ?? 0"></div>
+                  <div class="text-xs text-zinc-500 mt-1" x-text="(stats.drafts_pending ?? 0) ? 'tap to review' : 'all caught up'"></div>
+                </button>
+                <button @click="activeTab = 'scheduled'" class="text-left bg-gradient-to-br from-sky-950/40 to-zinc-900/60 border border-sky-900/30 rounded-xl p-4 hover:border-sky-700/50 transition">
+                  <div class="text-[11px] uppercase tracking-wider text-sky-400 font-semibold">Scheduled</div>
+                  <div class="text-3xl font-bold mt-1 text-sky-300" x-text="stats.drafts_scheduled ?? 0"></div>
+                  <div class="text-xs text-zinc-500 mt-1">queued to publish</div>
+                </button>
+                <button @click="activeTab = 'published'" class="text-left bg-gradient-to-br from-emerald-950/40 to-zinc-900/60 border border-emerald-900/30 rounded-xl p-4 hover:border-emerald-700/50 transition">
+                  <div class="text-[11px] uppercase tracking-wider text-emerald-400 font-semibold">Published</div>
+                  <div class="text-3xl font-bold mt-1 text-emerald-300" x-text="stats.drafts_published ?? 0"></div>
+                  <div class="text-xs text-zinc-500 mt-1" x-text="(stats.published_failed ?? 0) > 0 ? stats.published_failed + ' failed' : 'all successful'"></div>
+                </button>
+                <button @click="activeTab = 'articles'" class="text-left bg-gradient-to-br from-zinc-900 to-zinc-900/60 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition">
+                  <div class="text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">Articles fetched</div>
+                  <div class="text-3xl font-bold mt-1" x-text="stats.articles ?? 0"></div>
+                  <div class="text-xs text-zinc-500 mt-1" x-text="(stats.sources ?? 0) + ' sources active'"></div>
+                </button>
               </div>
 
-              <div class="text-sm whitespace-pre-wrap leading-relaxed mb-3" x-text="draft.content"></div>
-
-              <!-- Generated Card Preview -->
-              <div x-show="draft.media_url" class="mt-2 mb-3 max-w-lg overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
-                <img :src="draft.media_url" alt="Generated Card Preview" class="w-full h-auto object-contain">
-              </div>
-
-              <details x-show="parseReview(draft).why_it_matters || draft.thread_json" class="text-xs text-slate-400 mb-3">
-                <summary class="cursor-pointer hover:text-slate-200">Details</summary>
-                <div class="mt-2 space-y-2 pl-2 border-l-2 border-slate-800">
-                  <div x-show="parseReview(draft).why_it_matters">
-                    <span class="text-slate-500">Why it matters:</span>
-                    <span x-text="parseReview(draft).why_it_matters"></span>
-                  </div>
-                  <div x-show="parseReview(draft).source_notes">
-                    <span class="text-slate-500">Source:</span>
-                    <span x-text="parseReview(draft).source_notes"></span>
-                  </div>
-                  <div x-show="draft.scheduled_at">
-                    <span class="text-slate-500">Scheduled:</span>
-                    <span x-text="formatTime(draft.scheduled_at)"></span>
-                  </div>
-                  <div x-show="draft.published_at">
-                    <span class="text-slate-500">Published:</span>
-                    <span x-text="formatTime(draft.published_at)"></span>
-                  </div>
+              <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl">
+                <div class="px-5 py-3 border-b border-zinc-800 flex items-center justify-between">
+                  <h2 class="font-semibold text-sm">Recently published</h2>
+                  <button @click="activeTab = 'published'" class="text-xs text-emerald-400 hover:text-emerald-300">View all →</button>
                 </div>
-              </details>
-
-              <div class="flex flex-wrap gap-2" x-show="['pending','approved'].includes(activeTab)">
-                <button @click="approve(draft.id)" x-show="activeTab === 'pending'"
-                        class="px-3 py-1.5 text-xs rounded bg-emerald-600 hover:bg-emerald-500 text-white">
-                  Approve
-                </button>
-                <button @click="reject(draft.id)" x-show="activeTab === 'pending'"
-                        class="px-3 py-1.5 text-xs rounded bg-rose-600 hover:bg-rose-500 text-white">
-                  Reject
-                </button>
-                <button @click="openSchedule(draft)" x-show="['pending','approved'].includes(activeTab)"
-                        class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 text-white">
-                  Schedule
-                </button>
+                <div class="divide-y divide-zinc-800/60">
+                  <template x-if="!recentPublished.length">
+                    <div class="p-8 text-center text-zinc-500 text-sm">No posts published yet.</div>
+                  </template>
+                  <template x-for="post in recentPublished.slice(0, 5)" :key="post.id">
+                    <div class="px-5 py-3 hover:bg-zinc-800/30 transition">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 flex-1">
+                          <div class="text-sm leading-relaxed line-clamp-2" x-text="post.content"></div>
+                          <div class="flex items-center gap-3 text-xs text-zinc-500 mt-1.5">
+                            <span x-text="formatTime(post.published_at)"></span>
+                            <span x-show="post.status === 'success'" class="text-emerald-400">✓ live</span>
+                            <span x-show="post.status === 'deleted'" class="text-zinc-500">✗ deleted</span>
+                            <span x-show="post.status === 'failed'" class="text-rose-400">✗ failed</span>
+                          </div>
+                        </div>
+                        <a x-show="post.x_post_id && post.status === 'success'" :href="'https://x.com/i/status/' + post.x_post_id" target="_blank"
+                           class="text-xs text-emerald-400 hover:text-emerald-300 shrink-0">Open ↗</a>
+                      </div>
+                    </div>
+                  </template>
+                </div>
               </div>
             </div>
           </template>
-        </div>
-      </template>
 
-      <!-- Published tab -->
-      <template x-if="activeTab === 'published'">
-        <div class="space-y-3">
-          <template x-if="!published.length">
-            <p class="text-slate-500 text-sm py-8 text-center">No published posts yet.</p>
-          </template>
-          <template x-for="post in published" :key="post.id">
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <div class="flex items-start justify-between gap-4 mb-2">
-                <div class="flex items-center gap-2 text-xs">
-                  <span :class="post.status === 'success' ? 'bg-emerald-900 text-emerald-300 border-emerald-800' : 'bg-rose-900 text-rose-300 border-rose-800'"
-                        class="px-2 py-0.5 rounded border" x-text="post.status"></span>
-                  <span class="text-slate-500" x-text="'X ID: ' + (post.x_post_id || '—')"></span>
-                </div>
-                <div class="text-xs text-slate-500" x-text="formatTime(post.published_at)"></div>
+          <!-- Drafts list -->
+          <template x-if="['pending','approved','scheduled','rejected'].includes(activeTab)">
+            <div>
+              <div class="relative mb-4">
+                <input type="search" x-model.debounce.200ms="searchQuery" placeholder="Search drafts..."
+                       class="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
               </div>
-              <div class="text-sm whitespace-pre-wrap leading-relaxed" x-text="post.content"></div>
-              
-              <!-- Published Media Previews -->
-              <template x-for="url in post.media_urls" :key="url">
-                <div class="mt-2 mb-3 max-w-lg overflow-hidden rounded-lg border border-slate-800 bg-slate-950">
-                  <img :src="url" alt="Published Media Preview" class="w-full h-auto object-contain">
+              <div class="space-y-3">
+                <template x-if="!filteredDrafts.length">
+                  <div class="bg-zinc-900/40 border border-dashed border-zinc-800 rounded-xl p-12 text-center">
+                    <div class="text-4xl mb-3 opacity-50" x-text="emptyIcon()"></div>
+                    <div class="text-sm text-zinc-400" x-text="searchQuery ? 'No drafts match your search.' : emptyMessage()"></div>
+                  </div>
+                </template>
+                <template x-for="draft in filteredDrafts" :key="draft.id">
+                  <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-700 transition">
+                    <div class="px-4 py-2.5 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-2 text-xs flex-wrap">
+                        <span class="px-2 py-0.5 rounded font-medium bg-zinc-800 text-zinc-300 border border-zinc-700" x-text="postTypeLabel(draft.post_type)"></span>
+                        <span :class="riskClass(parseReview(draft).risk_level)" class="px-2 py-0.5 rounded font-medium border" x-text="riskLabel(parseReview(draft).risk_level)"></span>
+                        <span class="text-zinc-500">·</span>
+                        <span class="text-zinc-400 font-mono">score <span class="text-zinc-200" x-text="parseScore(draft).total_score ?? '?'"></span>/60</span>
+                        <span x-show="draft.requires_manual_approval" class="text-amber-400 font-medium" title="AI flagged this for human review">⚠ manual</span>
+                      </div>
+                      <div class="text-xs text-zinc-500 shrink-0" x-text="relativeTime(draft.created_at)"></div>
+                    </div>
+                    <div class="px-4 py-3.5">
+                      <div class="text-[15px] leading-relaxed whitespace-pre-wrap" x-text="draft.content"></div>
+                      <div class="mt-2 flex items-center gap-3 text-xs flex-wrap">
+                        <span :class="charCountClass(draft.content)" x-text="charCount(draft.content) + '/280'"></span>
+                        <span x-show="draft.scheduled_at" class="text-sky-400">🕐 publishes <span x-text="formatTime(draft.scheduled_at)"></span> (<span x-text="relativeTime(draft.scheduled_at)"></span>)</span>
+                      </div>
+                    </div>
+                    <div x-show="parseReview(draft).why_it_matters" class="px-4 pb-3">
+                      <details class="text-xs">
+                        <summary class="cursor-pointer text-zinc-400 hover:text-zinc-200 select-none">▸ AI analysis</summary>
+                        <div class="mt-2 pl-4 space-y-2 text-zinc-400 leading-relaxed border-l border-zinc-800">
+                          <div><span class="text-zinc-500 font-medium">Why it matters:</span> <span x-text="parseReview(draft).why_it_matters"></span></div>
+                          <div x-show="parseReview(draft).source_notes"><span class="text-zinc-500 font-medium">Source confidence:</span> <span x-text="parseReview(draft).source_notes"></span></div>
+                          <div x-show="(parseReview(draft).issues || []).length" class="text-amber-400/90"><span class="text-zinc-500 font-medium">Issues:</span> <span x-text="(parseReview(draft).issues || []).join(', ')"></span></div>
+                          <details class="text-zinc-500" x-show="(parseReview(draft).suggested_thread || []).length">
+                            <summary class="cursor-pointer hover:text-zinc-300">Thread version (<span x-text="(parseReview(draft).suggested_thread || []).length"></span> posts)</summary>
+                            <ol class="mt-2 ml-4 space-y-1 list-decimal text-zinc-300">
+                              <template x-for="(part, i) in parseReview(draft).suggested_thread || []" :key="i">
+                                <li class="leading-relaxed" x-text="part"></li>
+                              </template>
+                            </ol>
+                          </details>
+                        </div>
+                      </details>
+                    </div>
+                    <div class="px-4 py-2.5 bg-zinc-900/40 border-t border-zinc-800 flex flex-wrap items-center gap-2">
+                      <template x-if="activeTab === 'pending'">
+                        <div class="flex flex-wrap gap-2 flex-1">
+                          <button @click="approve(draft.id)" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition">✓ Approve</button>
+                          <button @click="reject(draft.id)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-rose-900/60 hover:text-rose-300 border border-zinc-700 transition">✗ Reject</button>
+                          <button @click="openSchedule(draft)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition">🕐 Schedule</button>
+                        </div>
+                      </template>
+                      <template x-if="activeTab === 'approved'">
+                        <div class="flex flex-wrap gap-2 flex-1">
+                          <button @click="publishNow(draft.id)" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition">🚀 Publish now</button>
+                          <button @click="openSchedule(draft)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition">🕐 Schedule</button>
+                          <button @click="reject(draft.id)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-rose-900/60 hover:text-rose-300 border border-zinc-700 transition">✗ Reject</button>
+                        </div>
+                      </template>
+                      <template x-if="activeTab === 'scheduled'">
+                        <div class="flex flex-wrap gap-2 flex-1">
+                          <button @click="publishNow(draft.id)" class="px-3 py-1.5 text-xs font-semibold rounded-md bg-emerald-500 hover:bg-emerald-400 text-zinc-950 transition">🚀 Publish now</button>
+                          <button @click="unschedule(draft.id)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition">↩ Unschedule</button>
+                          <button @click="reject(draft.id)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-rose-900/60 hover:text-rose-300 border border-zinc-700 transition">✗ Cancel</button>
+                        </div>
+                      </template>
+                      <button @click="copyText(draft.content)" class="px-2.5 py-1.5 text-xs rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition shrink-0" title="Copy text">📋</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Published -->
+          <template x-if="activeTab === 'published'">
+            <div>
+              <div class="flex gap-2 mb-4 items-center flex-wrap">
+                <input type="search" x-model.debounce.200ms="searchQuery" placeholder="Search published posts..."
+                       class="flex-1 min-w-[200px] bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50">
+                <select x-model="publishedFilter" class="bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50">
+                  <option value="all">All statuses</option>
+                  <option value="success">Live only</option>
+                  <option value="deleted">Deleted only</option>
+                  <option value="failed">Failed only</option>
+                </select>
+              </div>
+              <div class="space-y-3">
+                <template x-if="!filteredPublished.length">
+                  <div class="bg-zinc-900/40 border border-dashed border-zinc-800 rounded-xl p-12 text-center">
+                    <div class="text-4xl mb-3 opacity-50">📡</div>
+                    <div class="text-sm text-zinc-400">No published posts to show.</div>
+                  </div>
+                </template>
+                <template x-for="post in filteredPublished" :key="post.id">
+                  <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                      <div class="flex items-center gap-2 text-xs flex-wrap">
+                        <span :class="publishStatusClass(post.status)" class="px-2 py-0.5 rounded font-medium border" x-text="publishStatusLabel(post.status)"></span>
+                        <span x-show="post.x_post_id" class="text-zinc-500 font-mono">ID: <span x-text="post.x_post_id"></span></span>
+                      </div>
+                      <div class="text-xs text-zinc-500 shrink-0" x-text="formatTime(post.published_at)"></div>
+                    </div>
+                    <div class="text-[15px] leading-relaxed whitespace-pre-wrap mb-3" x-text="post.content"></div>
+                    <div class="flex items-center gap-2 flex-wrap pt-2 border-t border-zinc-800/60">
+                      <a x-show="post.x_post_id && post.status === 'success'" :href="'https://x.com/i/status/' + post.x_post_id" target="_blank"
+                         class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 transition">View on X ↗</a>
+                      <button x-show="post.status === 'success'" @click="confirmDelete(post)" class="px-3 py-1.5 text-xs font-medium rounded-md bg-zinc-800 hover:bg-rose-900/60 hover:text-rose-300 border border-zinc-700 transition">🗑 Delete from X</button>
+                      <button @click="copyText(post.content)" class="px-2.5 py-1.5 text-xs rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition" title="Copy text">📋</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Articles -->
+          <template x-if="activeTab === 'articles'">
+            <div>
+              <input type="search" x-model.debounce.200ms="searchQuery" placeholder="Search articles..."
+                     class="w-full mb-4 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500/50">
+              <div class="space-y-2">
+                <template x-if="!filteredArticles.length">
+                  <div class="bg-zinc-900/40 border border-dashed border-zinc-800 rounded-xl p-12 text-center">
+                    <div class="text-4xl mb-3 opacity-50">📰</div>
+                    <div class="text-sm text-zinc-400">No articles fetched yet.</div>
+                  </div>
+                </template>
+                <template x-for="art in filteredArticles" :key="art.id">
+                  <div class="bg-zinc-900/40 border border-zinc-800 rounded-lg p-3 hover:border-zinc-700 hover:bg-zinc-900/70 transition">
+                    <a :href="art.url" target="_blank" class="text-sm font-medium hover:text-emerald-400 line-clamp-2 leading-snug" x-text="art.title"></a>
+                    <div class="flex items-center gap-2 text-xs text-zinc-500 mt-1.5 flex-wrap">
+                      <span class="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 text-[10px] uppercase font-medium tracking-wider" x-text="art.category || '—'"></span>
+                      <span :class="articleStatusClass(art.status)" class="px-1.5 py-0.5 rounded border text-[10px] uppercase font-medium tracking-wider" x-text="art.status"></span>
+                      <span class="text-zinc-600">·</span>
+                      <span x-text="relativeTime(art.fetched_at)"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- Sources -->
+          <template x-if="activeTab === 'sources'">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <template x-if="!sources.length">
+                <div class="lg:col-span-2 bg-zinc-900/40 border border-dashed border-zinc-800 rounded-xl p-12 text-center">
+                  <div class="text-sm text-zinc-400">No sources configured.</div>
                 </div>
               </template>
-
-              <a x-show="post.x_post_id" :href="'https://x.com/i/status/' + post.x_post_id" target="_blank"
-                 class="mt-2 inline-block text-xs text-emerald-400 hover:text-emerald-300">
-                Open on X →
-              </a>
-            </div>
-          </template>
-        </div>
-      </template>
-
-      <!-- Articles tab -->
-      <template x-if="activeTab === 'articles'">
-        <div class="space-y-2">
-          <template x-if="!articles.length">
-            <p class="text-slate-500 text-sm py-8 text-center">No articles fetched yet.</p>
-          </template>
-          <template x-for="art in articles" :key="art.id">
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-start justify-between gap-4">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2 text-xs text-slate-500 mb-1">
-                  <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700" x-text="art.category || 'unknown'"></span>
-                  <span :class="articleStatusClass(art.status)" class="px-2 py-0.5 rounded border" x-text="art.status"></span>
+              <template x-for="src in sources" :key="src.id">
+                <div class="bg-zinc-900/40 border border-zinc-800 rounded-xl p-4 hover:border-zinc-700 transition">
+                  <div class="flex items-start justify-between gap-2 mb-2">
+                    <div class="font-semibold text-sm leading-tight" x-text="src.name"></div>
+                    <div class="flex items-center gap-1 text-xs shrink-0">
+                      <template x-for="i in 5" :key="i">
+                        <span :class="i <= Math.ceil(src.reliability_score / 2) ? 'text-amber-400' : 'text-zinc-700'">★</span>
+                      </template>
+                      <span class="text-zinc-500 ml-1 font-mono" x-text="src.reliability_score + '/10'"></span>
+                    </div>
+                  </div>
+                  <div class="flex gap-1.5 text-[11px] mb-2 flex-wrap">
+                    <span class="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 uppercase font-medium tracking-wider" x-text="src.type"></span>
+                    <span class="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 uppercase font-medium tracking-wider" x-text="src.category"></span>
+                  </div>
+                  <a :href="src.url" target="_blank" class="text-xs text-zinc-500 hover:text-emerald-400 break-all line-clamp-1 font-mono" x-text="src.url"></a>
                 </div>
-                <a :href="art.url" target="_blank" class="text-sm hover:text-emerald-400 line-clamp-2" x-text="art.title"></a>
-              </div>
-              <div class="text-xs text-slate-500 whitespace-nowrap shrink-0" x-text="relativeTime(art.fetched_at)"></div>
+              </template>
             </div>
           </template>
-        </div>
-      </template>
 
-      <!-- Sources tab -->
-      <template x-if="activeTab === 'sources'">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <template x-for="src in sources" :key="src.id">
-            <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <div class="flex items-start justify-between gap-2 mb-2">
-                <div class="font-medium text-sm" x-text="src.name"></div>
-                <span class="text-xs text-slate-500">★ <span x-text="src.reliability_score"></span>/10</span>
-              </div>
-              <div class="flex gap-2 text-xs text-slate-500 mb-2">
-                <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700" x-text="src.type"></span>
-                <span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700" x-text="src.category"></span>
-              </div>
-              <a :href="src.url" target="_blank" class="text-xs text-slate-400 hover:text-emerald-400 break-all" x-text="src.url"></a>
-            </div>
-          </template>
         </div>
-      </template>
-
+      </main>
     </div>
   </template>
 
   <!-- Schedule modal -->
-  <div x-show="scheduleDraft" @click.self="scheduleDraft = null"
-       class="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50" x-cloak>
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 w-full max-w-md">
-      <h3 class="text-lg font-bold mb-2">Schedule draft</h3>
-      <p class="text-sm text-slate-400 mb-4">Pick when this should publish (your local time).</p>
-      <input type="datetime-local" x-model="scheduleAt"
-             class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500">
+  <div x-show="scheduleDraft" @click.self="scheduleDraft = null" @keydown.escape.window="scheduleDraft = null"
+       class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" x-cloak>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <h3 class="text-lg font-bold mb-1">Schedule draft</h3>
+      <p class="text-sm text-zinc-400 mb-4">Pick when this should publish (your local time).</p>
+      <input type="datetime-local" x-model="scheduleAt" :min="scheduleMin"
+             class="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-500/50">
+      <div class="mt-3 flex gap-2 flex-wrap">
+        <button @click="setScheduleQuick(15)" class="text-xs px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700">in 15m</button>
+        <button @click="setScheduleQuick(60)" class="text-xs px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700">in 1h</button>
+        <button @click="setScheduleQuick(60*3)" class="text-xs px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700">in 3h</button>
+        <button @click="setScheduleAtTime(7,0,1)" class="text-xs px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700">tmrw 07:00</button>
+      </div>
       <div class="flex justify-end gap-2 mt-5">
-        <button @click="scheduleDraft = null" class="px-4 py-2 text-sm rounded-lg bg-slate-800 hover:bg-slate-700">Cancel</button>
-        <button @click="confirmSchedule()" class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">Schedule</button>
+        <button @click="scheduleDraft = null" class="px-4 py-2 text-sm rounded-lg bg-zinc-800 hover:bg-zinc-700">Cancel</button>
+        <button @click="confirmSchedule()" class="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-500 hover:bg-emerald-400 text-zinc-950">Schedule</button>
       </div>
     </div>
   </div>
 
-  <!-- Toast -->
-  <div x-show="toast.message" x-transition.opacity
-       :class="toast.type === 'error' ? 'bg-rose-900 border-rose-800' : 'bg-emerald-900 border-emerald-800'"
-       class="fixed bottom-6 right-6 border rounded-lg px-4 py-3 text-sm shadow-xl" x-cloak>
-    <span x-text="toast.message"></span>
+  <!-- Confirm modal -->
+  <div x-show="confirm.open" @click.self="confirm.open = false" @keydown.escape.window="confirm.open = false"
+       class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" x-cloak>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-full bg-rose-900/40 flex items-center justify-center text-xl shrink-0">⚠</div>
+        <div class="min-w-0 flex-1">
+          <h3 class="text-lg font-bold" x-text="confirm.title"></h3>
+          <p class="text-sm text-zinc-400 mt-1" x-text="confirm.message"></p>
+          <div x-show="confirm.detail" class="mt-3 bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-xs text-zinc-400 leading-relaxed line-clamp-3" x-text="confirm.detail"></div>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button @click="confirm.open = false" class="px-4 py-2 text-sm rounded-lg bg-zinc-800 hover:bg-zinc-700">Cancel</button>
+        <button @click="confirm.onYes && confirm.onYes(); confirm.open = false"
+                class="px-4 py-2 text-sm font-medium rounded-lg bg-rose-600 hover:bg-rose-500 text-white" x-text="confirm.button"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="fixed bottom-6 right-6 space-y-2 z-50" x-cloak>
+    <template x-for="t in toasts" :key="t.id">
+      <div x-transition.opacity
+           :class="{
+             'bg-emerald-950/90 border-emerald-700 text-emerald-200': t.type === 'success',
+             'bg-rose-950/90 border-rose-700 text-rose-200': t.type === 'error',
+             'bg-zinc-900/90 border-zinc-700 text-zinc-200': t.type === 'info',
+           }"
+           class="border rounded-lg px-4 py-3 text-sm shadow-2xl backdrop-blur min-w-[240px] max-w-sm flex items-center gap-3">
+        <span x-text="t.type === 'success' ? '✓' : t.type === 'error' ? '✗' : 'ℹ'"></span>
+        <span x-text="t.message" class="flex-1"></span>
+      </div>
+    </template>
   </div>
 
 </div>
@@ -261,39 +440,82 @@ function dashboard() {
     loading: false,
     lastRefresh: null,
 
-    activeTab: 'pending',
+    activeTab: localStorage.getItem('x-finance-bot-tab') || 'overview',
+    searchQuery: '',
+    publishedFilter: 'all',
+
     stats: {},
     drafts: [],
     published: [],
+    recentPublished: [],
     articles: [],
     sources: [],
 
     scheduleDraft: null,
     scheduleAt: '',
+    scheduleMin: '',
 
-    toast: { message: '', type: 'success' },
+    confirm: { open: false, title: '', message: '', detail: '', button: '', onYes: null },
+    toasts: [],
+    toastSeq: 0,
 
-    statCards: [
-      { key: 'drafts_pending',    label: 'Pending',    cls: 'text-amber-400' },
-      { key: 'drafts_approved',   label: 'Approved',   cls: 'text-emerald-400' },
-      { key: 'drafts_scheduled',  label: 'Scheduled',  cls: 'text-sky-400' },
-      { key: 'drafts_published',  label: 'Published',  cls: 'text-emerald-400' },
-      { key: 'drafts_rejected',   label: 'Rejected',   cls: 'text-rose-400' },
-      { key: 'published_failed',  label: 'Failed',     cls: 'text-rose-500' },
-      { key: 'articles',          label: 'Articles',   cls: 'text-slate-200' },
-      { key: 'sources',           label: 'Sources',    cls: 'text-slate-200' },
-    ],
+    tabDescriptions: {
+      overview:  'At-a-glance health of your bot.',
+      pending:   'Drafts waiting for your review and approval.',
+      approved:  'Approved drafts ready to publish or schedule.',
+      scheduled: 'Drafts queued to publish automatically.',
+      rejected:  'Drafts you rejected, kept for audit.',
+      published: 'Posts that went live on X.',
+      articles:  'Raw articles fetched from sources.',
+      sources:   'Configured news and data sources.',
+    },
 
-    get tabs() {
+    get navGroups() {
       return [
-        { id: 'pending',   label: 'Pending',   count: this.stats.drafts_pending },
-        { id: 'approved',  label: 'Approved',  count: this.stats.drafts_approved },
-        { id: 'scheduled', label: 'Scheduled', count: this.stats.drafts_scheduled },
-        { id: 'rejected',  label: 'Rejected',  count: this.stats.drafts_rejected },
-        { id: 'published', label: 'Published', count: this.stats.drafts_published },
-        { id: 'articles',  label: 'Articles',  count: this.stats.articles },
-        { id: 'sources',   label: 'Sources',   count: this.stats.sources },
+        { title: 'Overview', items: [
+          { id: 'overview', icon: '📊', label: 'Overview', count: 0 },
+        ]},
+        { title: 'Drafts', items: [
+          { id: 'pending',   icon: '📝', label: 'Pending',   count: this.stats.drafts_pending ?? 0 },
+          { id: 'approved',  icon: '✅', label: 'Approved',  count: this.stats.drafts_approved ?? 0 },
+          { id: 'scheduled', icon: '🕐', label: 'Scheduled', count: this.stats.drafts_scheduled ?? 0 },
+          { id: 'rejected',  icon: '🗑️', label: 'Rejected',  count: this.stats.drafts_rejected ?? 0 },
+        ]},
+        { title: 'History', items: [
+          { id: 'published', icon: '📡', label: 'Published', count: this.stats.drafts_published ?? 0 },
+          { id: 'articles',  icon: '📰', label: 'Articles',  count: this.stats.articles ?? 0 },
+        ]},
+        { title: 'System', items: [
+          { id: 'sources', icon: '🔌', label: 'Sources', count: this.stats.sources ?? 0 },
+        ]},
       ];
+    },
+
+    get flatTabs() { return this.navGroups.flatMap(g => g.items); },
+    get currentTab() { return this.flatTabs.find(t => t.id === this.activeTab); },
+
+    get filteredDrafts() {
+      const q = this.searchQuery.trim().toLowerCase();
+      if (!q) return this.drafts;
+      return this.drafts.filter(d =>
+        (d.content || '').toLowerCase().includes(q) ||
+        (this.parseReview(d).why_it_matters || '').toLowerCase().includes(q)
+      );
+    },
+    get filteredPublished() {
+      let list = this.published;
+      if (this.publishedFilter !== 'all') list = list.filter(p => p.status === this.publishedFilter);
+      const q = this.searchQuery.trim().toLowerCase();
+      if (!q) return list;
+      return list.filter(p => (p.content || '').toLowerCase().includes(q));
+    },
+    get filteredArticles() {
+      const q = this.searchQuery.trim().toLowerCase();
+      if (!q) return this.articles;
+      return this.articles.filter(a =>
+        (a.title || '').toLowerCase().includes(q) ||
+        (a.category || '').toLowerCase().includes(q)
+      );
     },
 
     init() {
@@ -302,7 +524,11 @@ function dashboard() {
         this.refresh();
         setInterval(() => { if (this.authed) this.refresh(); }, 30000);
       }
-      this.$watch('activeTab', () => this.loadActive());
+      this.$watch('activeTab', (v) => {
+        localStorage.setItem('x-finance-bot-tab', v);
+        this.searchQuery = '';
+        this.loadActive();
+      });
     },
 
     async login() {
@@ -340,14 +566,16 @@ function dashboard() {
     async refresh() {
       this.loading = true;
       try {
-        const [stats] = await Promise.all([
+        const [stats, recent] = await Promise.all([
           this.api('/api/stats'),
+          this.api('/api/published?limit=10').catch(() => []),
           this.loadActive(),
         ]);
         this.stats = stats;
+        this.recentPublished = Array.isArray(recent) ? recent : [];
         this.lastRefresh = new Date();
       } catch (e) {
-        this.showToast(e.message, 'error');
+        this.toast(e.message, 'error');
       } finally {
         this.loading = false;
       }
@@ -358,40 +586,102 @@ function dashboard() {
         if (['pending','approved','scheduled','rejected'].includes(this.activeTab)) {
           this.drafts = await this.api(`/api/drafts?status=${this.activeTab}&limit=200`);
         } else if (this.activeTab === 'published') {
-          this.published = await this.api('/api/published');
+          this.published = await this.api('/api/published?limit=200');
         } else if (this.activeTab === 'articles') {
           this.articles = await this.api('/api/articles?limit=100');
         } else if (this.activeTab === 'sources') {
           this.sources = await this.api('/api/sources');
+        } else if (this.activeTab === 'overview') {
+          this.recentPublished = await this.api('/api/published?limit=10').catch(() => []);
         }
-      } catch (e) {
-        this.showToast(e.message, 'error');
-      }
+      } catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    emptyIcon() {
+      return { pending: '📭', approved: '✅', scheduled: '🕐', rejected: '🗑️' }[this.activeTab] || '📭';
+    },
+    emptyMessage() {
+      const map = {
+        pending:   'Inbox zero. Bot has nothing waiting on you right now.',
+        approved:  'No approved drafts queued. Approve some from Pending.',
+        scheduled: 'No drafts scheduled. Pick a draft and use Schedule to queue it.',
+        rejected:  'You haven\'t rejected anything yet.',
+      };
+      return map[this.activeTab] || 'Nothing to show.';
     },
 
     async approve(id) {
-      try {
-        await this.api(`/api/drafts/${id}/approve`, { method: 'POST' });
-        this.showToast('Approved');
-        this.refresh();
-      } catch (e) { this.showToast(e.message, 'error'); }
+      try { await this.api(`/api/drafts/${id}/approve`, { method: 'POST' }); this.toast('Approved'); this.refresh(); }
+      catch (e) { this.toast(e.message, 'error'); }
     },
 
-    async reject(id) {
-      if (!confirm('Reject this draft?')) return;
-      try {
-        await this.api(`/api/drafts/${id}/reject`, { method: 'POST' });
-        this.showToast('Rejected');
-        this.refresh();
-      } catch (e) { this.showToast(e.message, 'error'); }
+    reject(id) {
+      this.openConfirm({
+        title: 'Reject this draft?',
+        message: 'It will be moved to Rejected and won\'t be published.',
+        button: 'Reject',
+        onYes: async () => {
+          try { await this.api(`/api/drafts/${id}/reject`, { method: 'POST' }); this.toast('Rejected'); this.refresh(); }
+          catch (e) { this.toast(e.message, 'error'); }
+        },
+      });
+    },
+
+    publishNow(id) {
+      const d = this.drafts.find(x => x.id === id);
+      this.openConfirm({
+        title: 'Publish now?',
+        message: 'This will post to X immediately and cannot be undone.',
+        detail: d ? d.content : '',
+        button: 'Publish to X',
+        onYes: async () => {
+          try { await this.api(`/api/drafts/${id}/publish`, { method: 'POST' }); this.toast('Published to X', 'success'); this.refresh(); }
+          catch (e) { this.toast(e.message, 'error'); }
+        },
+      });
+    },
+
+    async unschedule(id) {
+      try { await this.api(`/api/drafts/${id}/unschedule`, { method: 'POST' }); this.toast('Unscheduled (back to approved)'); this.refresh(); }
+      catch (e) { this.toast(e.message, 'error'); }
+    },
+
+    confirmDelete(post) {
+      this.openConfirm({
+        title: 'Delete from X?',
+        message: 'This permanently removes the post on X. The local record is kept marked as deleted.',
+        detail: post.content,
+        button: 'Delete from X',
+        onYes: async () => {
+          try { await this.api(`/api/published/${post.id}`, { method: 'DELETE' }); this.toast('Deleted from X', 'success'); this.refresh(); }
+          catch (e) { this.toast(e.message, 'error'); }
+        },
+      });
+    },
+
+    openConfirm({ title, message, detail = '', button = 'Confirm', onYes }) {
+      this.confirm = { open: true, title, message, detail, button, onYes };
     },
 
     openSchedule(draft) {
       this.scheduleDraft = draft;
-      const now = new Date(Date.now() + 5 * 60 * 1000);
-      this.scheduleAt = now.toISOString().slice(0, 16);
+      this.scheduleMin = this.toLocalInput(new Date());
+      this.setScheduleQuick(15);
     },
-
+    setScheduleQuick(minutes) {
+      const d = new Date(Date.now() + minutes * 60 * 1000);
+      this.scheduleAt = this.toLocalInput(d);
+    },
+    setScheduleAtTime(hour, minute, addDays) {
+      const d = new Date();
+      d.setDate(d.getDate() + (addDays || 0));
+      d.setHours(hour, minute, 0, 0);
+      this.scheduleAt = this.toLocalInput(d);
+    },
+    toLocalInput(d) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    },
     async confirmSchedule() {
       if (!this.scheduleAt) return;
       const at = new Date(this.scheduleAt).toISOString();
@@ -400,60 +690,101 @@ function dashboard() {
           method: 'POST',
           body: JSON.stringify({ scheduled_at: at }),
         });
-        this.showToast('Scheduled');
+        this.toast('Scheduled');
         this.scheduleDraft = null;
         this.refresh();
-      } catch (e) { this.showToast(e.message, 'error'); }
+      } catch (e) { this.toast(e.message, 'error'); }
     },
 
-    parseReview(d) {
-      try { return d.review_json ? JSON.parse(d.review_json) : {}; }
-      catch { return {}; }
+    async copyText(text) {
+      try { await navigator.clipboard.writeText(text); this.toast('Copied to clipboard'); }
+      catch (e) { this.toast('Copy failed', 'error'); }
     },
 
-    parseScore(d) {
-      try { return d.score_json ? JSON.parse(d.score_json) : {}; }
-      catch { return {}; }
-    },
+    parseReview(d) { try { return d.review_json ? JSON.parse(d.review_json) : {}; } catch { return {}; } },
+    parseScore(d)  { try { return d.score_json  ? JSON.parse(d.score_json)  : {}; } catch { return {}; } },
 
     riskClass(level) {
       switch (level) {
-        case 'low':    return 'bg-emerald-900 text-emerald-300 border-emerald-800';
-        case 'medium': return 'bg-amber-900 text-amber-300 border-amber-800';
-        case 'high':   return 'bg-rose-900 text-rose-300 border-rose-800';
-        default:       return 'bg-slate-800 text-slate-400 border-slate-700';
+        case 'low':    return 'bg-emerald-950 text-emerald-300 border-emerald-800/50';
+        case 'medium': return 'bg-amber-950 text-amber-300 border-amber-800/50';
+        case 'high':   return 'bg-rose-950 text-rose-300 border-rose-800/50';
+        default:       return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+      }
+    },
+    riskLabel(level) { return level ? level + ' risk' : 'risk: ?'; },
+
+    publishStatusClass(s) {
+      switch (s) {
+        case 'success': return 'bg-emerald-950 text-emerald-300 border-emerald-800/50';
+        case 'failed':  return 'bg-rose-950 text-rose-300 border-rose-800/50';
+        case 'deleted': return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+        default:        return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+      }
+    },
+    publishStatusLabel(s) {
+      switch (s) {
+        case 'success': return '✓ live';
+        case 'failed':  return '✗ failed';
+        case 'deleted': return '🗑 deleted';
+        default:        return s;
       }
     },
 
     articleStatusClass(s) {
       switch (s) {
-        case 'published': return 'bg-emerald-900 text-emerald-300 border-emerald-800';
-        case 'drafted':   return 'bg-sky-900 text-sky-300 border-sky-800';
-        case 'skipped':   return 'bg-slate-800 text-slate-400 border-slate-700';
-        case 'scored':    return 'bg-amber-900 text-amber-300 border-amber-800';
-        default:          return 'bg-slate-800 text-slate-400 border-slate-700';
+        case 'published': return 'bg-emerald-950 text-emerald-300 border-emerald-800/50';
+        case 'drafted':   return 'bg-sky-950 text-sky-300 border-sky-800/50';
+        case 'skipped':   return 'bg-zinc-800 text-zinc-500 border-zinc-700';
+        case 'scored':    return 'bg-amber-950 text-amber-300 border-amber-800/50';
+        case 'fetched':   return 'bg-zinc-800 text-zinc-400 border-zinc-700';
+        default:          return 'bg-zinc-800 text-zinc-400 border-zinc-700';
       }
+    },
+
+    postTypeLabel(t) {
+      const map = { single: 'post', thread: 'thread', briefing: 'briefing', alert: 'alert' };
+      return map[t] || t;
+    },
+
+    charCount(s) { return (s || '').length; },
+    charCountClass(s) {
+      const n = this.charCount(s);
+      if (n > 280) return 'text-rose-400 font-medium';
+      if (n > 260) return 'text-amber-400';
+      return 'text-zinc-500';
     },
 
     formatTime(iso) {
       if (!iso) return '—';
-      const d = new Date(iso);
-      return d.toLocaleString();
+      try {
+        return new Date(iso).toLocaleString(undefined, {
+          year: 'numeric', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+      } catch { return iso; }
     },
-
     relativeTime(iso) {
       if (!iso) return '—';
       const d = typeof iso === 'string' ? new Date(iso) : iso;
       const sec = Math.floor((Date.now() - d.getTime()) / 1000);
-      if (sec < 60)  return `${sec}s ago`;
-      if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
+      if (sec < 0) {
+        const fut = -sec;
+        if (fut < 60) return `in ${fut}s`;
+        if (fut < 3600) return `in ${Math.floor(fut/60)}m`;
+        if (fut < 86400) return `in ${Math.floor(fut/3600)}h`;
+        return `in ${Math.floor(fut/86400)}d`;
+      }
+      if (sec < 60)    return `${sec}s ago`;
+      if (sec < 3600)  return `${Math.floor(sec/60)}m ago`;
       if (sec < 86400) return `${Math.floor(sec/3600)}h ago`;
       return `${Math.floor(sec/86400)}d ago`;
     },
 
-    showToast(message, type = 'success') {
-      this.toast = { message, type };
-      setTimeout(() => { this.toast.message = ''; }, 3000);
+    toast(message, type = 'success') {
+      const id = ++this.toastSeq;
+      this.toasts.push({ id, message, type });
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
     },
   };
 }

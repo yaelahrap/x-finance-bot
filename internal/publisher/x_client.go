@@ -63,6 +63,55 @@ func (c *XClient) PublishWithMedia(ctx context.Context, content string, mediaIDs
 	return c.createTweet(ctx, content, mediaIDs)
 }
 
+// DeletePost removes a published tweet via DELETE /2/tweets/{id}.
+// X returns 200 with {"data":{"deleted":true}} on success. Trying to delete
+// a tweet that no longer exists or was never owned returns 404/403, which is
+// surfaced as an error so the caller can decide whether to ignore.
+func (c *XClient) DeletePost(ctx context.Context, xPostID string) error {
+	if xPostID == "" {
+		return fmt.Errorf("delete post: empty post id")
+	}
+
+	endpoint := xAPIBaseURL + "/tweets/" + xPostID
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return fmt.Errorf("create delete request: %w", err)
+	}
+
+	if err := c.signRequest(req); err != nil {
+		return fmt.Errorf("sign delete request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("delete tweet: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("tweet not found on X (already deleted?): %s", string(respBody))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("X delete error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var deleteResp struct {
+		Data struct {
+			Deleted bool `json:"deleted"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &deleteResp); err != nil {
+		return fmt.Errorf("unmarshal delete response: %w", err)
+	}
+	if !deleteResp.Data.Deleted {
+		return fmt.Errorf("X reported delete=false: %s", string(respBody))
+	}
+	return nil
+}
+
 func (c *XClient) createTweet(ctx context.Context, content string, mediaIDs []string) (*PublishResult, error) {
 	endpoint := xAPIBaseURL + "/tweets"
 

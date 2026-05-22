@@ -381,6 +381,30 @@ func (s *SQLiteStore) GetPublishedPosts(ctx context.Context, limit, offset int) 
 	return posts, rows.Err()
 }
 
+// GetPublishedByDraftID returns the published record for a draft, or nil if none.
+func (s *SQLiteStore) GetPublishedByDraftID(ctx context.Context, draftID string) (*models.PublishedPost, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, draft_id, x_post_id, content, media_urls, published_at, status
+		 FROM published_posts WHERE draft_id = ? ORDER BY published_at DESC LIMIT 1`, draftID)
+	return scanPublishedSingle(row)
+}
+
+// GetPublishedByID returns the published record by its primary id, or nil if not found.
+func (s *SQLiteStore) GetPublishedByID(ctx context.Context, id string) (*models.PublishedPost, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, draft_id, x_post_id, content, media_urls, published_at, status
+		 FROM published_posts WHERE id = ?`, id)
+	return scanPublishedSingle(row)
+}
+
+// MarkPublishedDeleted flips the published_posts.status to "deleted" for the given record.
+func (s *SQLiteStore) MarkPublishedDeleted(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE published_posts SET status = ? WHERE id = ?`,
+		string(models.PublishStatusDeleted), id)
+	return err
+}
+
 // --- Market ---
 
 func (s *SQLiteStore) SaveMarketSnapshot(ctx context.Context, snap models.MarketSnapshot) error {
@@ -495,6 +519,11 @@ func (s *SQLiteStore) Counts(ctx context.Context) (Counts, error) {
 	if err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM published_posts WHERE status = ?`,
 		string(models.PublishStatusFailed)).Scan(&c.PublishedFailed); err != nil {
+		return c, err
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM published_posts WHERE status = ?`,
+		string(models.PublishStatusDeleted)).Scan(&c.PublishedDeleted); err != nil {
 		return c, err
 	}
 
@@ -710,6 +739,38 @@ func scanPublishedRow(rows *sql.Rows) (*models.PublishedPost, error) {
 
 	err := rows.Scan(&p.ID, &draftID, &xPostID, &p.Content,
 		&mediaURLsJSON, &publishedAt, &status)
+	if err != nil {
+		return nil, err
+	}
+
+	p.Status = models.PublishStatus(status)
+	if draftID.Valid {
+		p.DraftID = draftID.String
+	}
+	if xPostID.Valid {
+		p.XPostID = xPostID.String
+	}
+	p.PublishedAt, _ = time.Parse(time.RFC3339, publishedAt)
+	if mediaURLsJSON.Valid && mediaURLsJSON.String != "" {
+		_ = json.Unmarshal([]byte(mediaURLsJSON.String), &p.MediaURLs)
+	}
+	return &p, nil
+}
+
+// scanPublishedSingle scans a published post from QueryRow.
+// Returns (nil, nil) when sql.ErrNoRows.
+func scanPublishedSingle(row *sql.Row) (*models.PublishedPost, error) {
+	var p models.PublishedPost
+	var draftID, xPostID sql.NullString
+	var mediaURLsJSON sql.NullString
+	var publishedAt string
+	var status string
+
+	err := row.Scan(&p.ID, &draftID, &xPostID, &p.Content,
+		&mediaURLsJSON, &publishedAt, &status)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}

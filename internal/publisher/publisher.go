@@ -14,6 +14,8 @@ type Publisher interface {
 	PublishText(ctx context.Context, content string) (*PublishResult, error)
 	// PublishWithMedia posts a tweet with attached media and returns the result.
 	PublishWithMedia(ctx context.Context, content string, mediaIDs []string) (*PublishResult, error)
+	// DeletePost removes a previously published tweet by its X post ID.
+	DeletePost(ctx context.Context, xPostID string) error
 }
 
 // PublishResult holds the outcome of a publish operation.

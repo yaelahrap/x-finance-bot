@@ -37,6 +37,9 @@ type Storage interface {
 	// Published
 	SavePublished(ctx context.Context, post models.PublishedPost) error
 	GetPublishedPosts(ctx context.Context, limit, offset int) ([]models.PublishedPost, error)
+	GetPublishedByDraftID(ctx context.Context, draftID string) (*models.PublishedPost, error)
+	GetPublishedByID(ctx context.Context, id string) (*models.PublishedPost, error)
+	MarkPublishedDeleted(ctx context.Context, id string) error
 
 	// Market
 	SaveMarketSnapshot(ctx context.Context, snap models.MarketSnapshot) error
@@ -63,5 +66,6 @@ type Counts struct {
 	DraftsPublished  int `json:"drafts_published"`
 	PublishedSuccess int `json:"published_success"`
 	PublishedFailed  int `json:"published_failed"`
+	PublishedDeleted int `json:"published_deleted"`
 	Sources          int `json:"sources"`
 }

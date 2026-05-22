@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/raflyramadhan/x-finance-bot/internal/publisher"
 	"github.com/raflyramadhan/x-finance-bot/internal/server/dashboard"
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
 )
@@ -17,6 +18,8 @@ type Config struct {
 	AdminAPIKey    string
 	AllowedOrigins []string
 	Store          storage.Storage
+	Publisher      publisher.Publisher
+	PublishNow     PublishNow
 	Logger         *slog.Logger
 }
 
@@ -40,7 +43,7 @@ func New(cfg Config) *Server {
 	}
 
 	apiMux := http.NewServeMux()
-	Routes(apiMux, cfg.Store, logger)
+	Routes(apiMux, cfg.Store, cfg.Publisher, cfg.PublishNow, logger)
 
 	apiHandler := Chain(apiMux,
 		Recovery(logger),
