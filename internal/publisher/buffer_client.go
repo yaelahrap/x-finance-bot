@@ -89,6 +89,9 @@ func (c *BufferClient) bufferRequest(ctx context.Context, query string, variable
 // createPost sends a createPost mutation to Buffer.
 // imageURL is optional — pass "" for text-only posts.
 func (c *BufferClient) createPost(ctx context.Context, text, imageURL string) (*PublishResult, error) {
+	// Append brand hashtag to every post
+	text = text + "\n\n#BeforeTomorrow"
+
 	// Build assets array if image URL provided
 	assetsGQL := ""
 	if imageURL != "" {

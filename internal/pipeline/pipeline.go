@@ -455,8 +455,13 @@ func (o *Orchestrator) processArticle(ctx context.Context, src models.Source, ar
 			cardDetails = reviewOutput.SuggestedPost
 		}
 
+		cardSourceName := reviewOutput.PublisherName
+		if cardSourceName == "" {
+			cardSourceName = src.Name
+		}
+
 		o.logger.Info("generating card image", "category", category, "title", art.Title)
-		pngBytes, err := cardgen.GenerateCard(category, art.Title, cardDetails, src.Name)
+		pngBytes, err := cardgen.GenerateCard(category, art.Title, cardDetails, cardSourceName)
 		if err != nil {
 			o.logger.Error("failed to generate card image", "error", err)
 		} else if o.r2Client != nil {

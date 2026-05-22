@@ -58,6 +58,7 @@ General Rules:
   * Do not output empty parentheses "()" if the URL is empty or missing.
 - Keep all X posts within 280 characters limit. X (Twitter) automatically shortens all URLs to exactly 23 characters, so count the URL as 23 characters when checking the limit.
 - If using thread ("suggested_thread"), ensure the first tweet follows the layout above, and subsequent tweets add details.
+- Extract the actual news publisher name (e.g., "Finimize", "Gotrade", "Reuters") from the Title or Content into the "publisher_name" field. If the source is an aggregator like "Google News", DO NOT use "Google News", use the original publisher name.
 - Never write text outside the requested JSON.
 
 Return JSON only using this schema:
@@ -80,7 +81,8 @@ Return JSON only using this schema:
   "suggested_post": string,
   "suggested_thread": string[],
   "why_it_matters": string,
-  "source_notes": string
+  "source_notes": string,
+  "publisher_name": string
 }
 
 Do not include any text outside the JSON object.`

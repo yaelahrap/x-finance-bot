@@ -37,6 +37,8 @@ type ReviewResult struct {
 	WhyItMatters string `json:"why_it_matters"`
 	// SourceNotes captures any notes about the source reliability or context.
 	SourceNotes string `json:"source_notes"`
+	// PublisherName is the extracted name of the original news publisher (e.g., "Finimize", "Gotrade").
+	PublisherName string `json:"publisher_name"`
 }
 
 // RewriteResult is the structured AI rewriter output producing different post forms.
