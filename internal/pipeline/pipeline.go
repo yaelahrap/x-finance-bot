@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,10 @@ import (
 	"github.com/raflyramadhan/x-finance-bot/internal/storage"
 )
 
+// staggerInterval controls how far apart non-urgent posts are scheduled in Buffer
+// when the bot routes them via BufferModeCustom.
+const staggerInterval = 1 * time.Hour
+
 type Orchestrator struct {
 	store       storage.Storage
 	reviewer    *ai.Reviewer
@@ -31,6 +36,11 @@ type Orchestrator struct {
 	cmcAPIKey   string
 	postingMode string
 	httpClient  *http.Client
+
+	// staggerMu protects nextStagger to prevent two concurrent ticks from
+	// scheduling overlapping slots.
+	staggerMu   sync.Mutex
+	nextStagger time.Time
 }
 
 func NewOrchestrator(
@@ -188,35 +198,144 @@ func (o *Orchestrator) PublishDraftNow(ctx context.Context, draftID string) (*mo
 	return o.store.GetPublishedByDraftID(ctx, draftID)
 }
 
-// ProcessScheduledDrafts publishes any drafts whose scheduled_at is at or
-// before now, as well as manually approved drafts that are ready to publish immediately.
-// Failures are logged but do not abort the loop so a single bad
-// draft cannot block the rest of the queue.
+// ProcessScheduledDrafts publishes drafts whose scheduled_at is at or before now.
+//
+// Only "scheduled" drafts are flushed here; "approved" drafts intentionally stay
+// in the queue waiting for the user to either Schedule or Publish-now from the
+// dashboard. Auto-flushing all approved drafts would (a) violate the UX contract
+// and (b) burst-blast Buffer's API into a 429.
+//
+// To stay within Buffer's rate limits even when many scheduled drafts come due
+// at once, we cap the per-tick batch and add a small inter-call delay.
+// Failures are logged but do not abort the loop so a single bad draft cannot
+// block the rest of the queue.
 func (o *Orchestrator) ProcessScheduledDrafts(ctx context.Context) error {
+	const (
+		maxPerTick     = 5
+		interCallDelay = 1500 * time.Millisecond
+	)
+
 	now := time.Now().UTC()
 	due, err := o.store.GetDueScheduledDrafts(ctx, now)
 	if err != nil {
 		return fmt.Errorf("get due scheduled drafts: %w", err)
 	}
-
-	approved, err := o.store.GetDraftsByStatus(ctx, models.DraftStatusApproved, 100)
-	if err != nil {
-		return fmt.Errorf("get approved drafts: %w", err)
-	}
-
-	toPublish := append(due, approved...)
-	if len(toPublish) == 0 {
+	if len(due) == 0 {
 		return nil
 	}
 
-	o.logger.Info("publishing outgoing drafts", "scheduled", len(due), "approved", len(approved))
+	batch := due
+	if len(batch) > maxPerTick {
+		batch = batch[:maxPerTick]
+	}
 
-	for _, d := range toPublish {
+	o.logger.Info("publishing scheduled drafts",
+		"due", len(due), "publishing", len(batch), "deferred", len(due)-len(batch))
+
+	for i, d := range batch {
 		if err := o.publishDraft(ctx, d); err != nil {
 			o.logger.Error("publish failed", "draft_id", d.ID, "error", err)
+			// If Buffer rate-limits us, stop the whole batch; further calls in
+			// the same window will also fail and burn quota.
+			if publisher.IsRateLimited(err) {
+				o.logger.Warn("buffer rate limited, aborting remaining batch",
+					"remaining", len(batch)-i-1)
+				return nil
+			}
+		}
+		// Throttle between calls so we don't exceed Buffer's per-window rate limit.
+		// The last iteration skips the sleep.
+		if i < len(batch)-1 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(interCallDelay):
+			}
 		}
 	}
 	return nil
+}
+
+// errNotBufferPublisher signals that publishViaBuffer cannot route this draft
+// because the configured publisher is not a *publisher.BufferClient. Callers
+// fall back to the generic Publisher interface for non-Buffer providers.
+var errNotBufferPublisher = fmt.Errorf("publisher is not a buffer client")
+
+// classifyDraft picks the Buffer publish mode and (for custom mode) a target
+// scheduledAt for a draft, based on its category, post type, risk level, and
+// AI score.
+//
+// Tiers:
+//   1. emergency / alert       -> BufferModeNow         (publish immediately, bypass queue)
+//   2. low risk + high score   -> BufferModeQueue       (let Buffer's posting schedule decide)
+//   3. everything else lulus   -> BufferModeCustom      (staggered 1h apart by the bot)
+func (o *Orchestrator) classifyDraft(d models.DraftPost) (publisher.BufferMode, time.Time) {
+	review := parseReviewJSON(d.ReviewJSON)
+
+	if d.PostType == models.PostTypeAlert ||
+		strings.EqualFold(review.Category, "emergency") {
+		return publisher.BufferModeNow, time.Time{}
+	}
+
+	if review.RiskLevel == models.RiskLevelLow && review.Scores.TotalScore >= 42 {
+		return publisher.BufferModeQueue, time.Time{}
+	}
+
+	return publisher.BufferModeCustom, o.reserveStaggerSlot()
+}
+
+// reserveStaggerSlot returns the next available staggered slot and advances
+// the cursor so subsequent calls return distinct, monotonically-increasing
+// times. The cursor is anchored at max(now+5m, lastSlot+staggerInterval).
+func (o *Orchestrator) reserveStaggerSlot() time.Time {
+	o.staggerMu.Lock()
+	defer o.staggerMu.Unlock()
+
+	earliest := time.Now().UTC().Add(5 * time.Minute)
+	next := o.nextStagger
+	if next.Before(earliest) {
+		next = earliest
+	}
+	o.nextStagger = next.Add(staggerInterval)
+	return next
+}
+
+// publishViaBuffer dispatches a draft through the Buffer GraphQL API using the
+// tier classification. If the configured publisher is not a *BufferClient,
+// it returns errNotBufferPublisher so callers can fall back to the generic
+// Publisher interface.
+func (o *Orchestrator) publishViaBuffer(ctx context.Context, d models.DraftPost, imageURL string) (*publisher.PublishResult, error) {
+	bufClient, ok := o.publisher.(*publisher.BufferClient)
+	if !ok {
+		return nil, errNotBufferPublisher
+	}
+
+	mode, scheduledAt := o.classifyDraft(d)
+
+	o.logger.Info("buffer routing decision",
+		"draft_id", d.ID,
+		"post_type", d.PostType,
+		"mode", mode,
+		"scheduled_at", scheduledAt.Format(time.RFC3339),
+	)
+
+	return bufClient.PublishWithOptions(ctx, d.Content, publisher.BufferPublishOptions{
+		Mode:        mode,
+		ScheduledAt: scheduledAt,
+		ImageURL:    imageURL,
+	})
+}
+
+// parseReviewJSON best-effort decodes a draft's stored review_json into a
+// ReviewResult. Errors yield a zero-value result so the caller can apply
+// conservative defaults rather than crashing.
+func parseReviewJSON(raw string) models.ReviewResult {
+	var r models.ReviewResult
+	if raw == "" {
+		return r
+	}
+	_ = json.Unmarshal([]byte(raw), &r)
+	return r
 }
 
 // downloadMediaBytes fetches the image data from a public URL.
@@ -271,9 +390,16 @@ func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) err
 	}
 
 	if len(mediaIDs) > 0 {
-		publishRes, err = o.publisher.PublishWithMedia(ctx, d.Content, mediaIDs)
+		publishRes, err = o.publishViaBuffer(ctx, d, mediaIDs[0])
+		if err != nil {
+			// Fallback to legacy PublishWithMedia for non-Buffer publishers (e.g. XClient).
+			publishRes, err = o.publisher.PublishWithMedia(ctx, d.Content, mediaIDs)
+		}
 	} else {
-		publishRes, err = o.publisher.PublishText(ctx, d.Content)
+		publishRes, err = o.publishViaBuffer(ctx, d, "")
+		if err != nil {
+			publishRes, err = o.publisher.PublishText(ctx, d.Content)
+		}
 	}
 
 	if err != nil {

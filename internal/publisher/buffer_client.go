@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,6 +37,15 @@ func NewBufferClient(apiKey, channelID string) *BufferClient {
 			Timeout: 30 * time.Second,
 		},
 	}
+}
+
+// ErrBufferRateLimited is returned when Buffer rejects a request with HTTP 429.
+// Callers may inspect this to back off rather than treating it as a generic failure.
+var ErrBufferRateLimited = errors.New("buffer rate limit exceeded")
+
+// IsRateLimited reports whether err is or wraps a Buffer rate-limit error.
+func IsRateLimited(err error) bool {
+	return errors.Is(err, ErrBufferRateLimited)
 }
 
 // bufferRequest executes a GraphQL request against the Buffer API.
@@ -68,6 +78,9 @@ func (c *BufferClient) bufferRequest(ctx context.Context, query string, variable
 		return nil, fmt.Errorf("buffer: read response: %w", err)
 	}
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("%w: %s", ErrBufferRateLimited, string(respBody))
+	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("buffer: HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -86,15 +99,48 @@ func (c *BufferClient) bufferRequest(ctx context.Context, query string, variable
 	return result, nil
 }
 
+// BufferMode controls when Buffer publishes a post.
+//
+//   - BufferModeNow     publishes immediately, bypassing the channel queue.
+//   - BufferModeQueue   appends to the channel's posting schedule (default for routine posts).
+//   - BufferModeCustom  publishes at a specific time supplied by the caller.
+type BufferMode string
+
+const (
+	// BufferModeNow publishes the post immediately.
+	BufferModeNow BufferMode = "now"
+	// BufferModeQueue adds the post to the Buffer channel's queue.
+	BufferModeQueue BufferMode = "addToQueue"
+	// BufferModeCustom schedules the post for a specific time.
+	BufferModeCustom BufferMode = "custom"
+)
+
+// BufferPublishOptions controls Buffer-specific publish behavior.
+type BufferPublishOptions struct {
+	// Mode selects how Buffer should schedule this post.
+	Mode BufferMode
+	// ScheduledAt is required when Mode == BufferModeCustom; ignored otherwise.
+	ScheduledAt time.Time
+	// ImageURL is optional and attached as the post's media if set.
+	ImageURL string
+}
+
 // createPost sends a createPost mutation to Buffer.
 // imageURL is optional — pass "" for text-only posts.
 func (c *BufferClient) createPost(ctx context.Context, text, imageURL string) (*PublishResult, error) {
-	// Append brand hashtag to every post
+	return c.createPostWithOptions(ctx, text, BufferPublishOptions{
+		Mode:     BufferModeQueue,
+		ImageURL: imageURL,
+	})
+}
+
+// createPostWithOptions builds and sends a Buffer createPost mutation honoring
+// the requested scheduling mode.
+func (c *BufferClient) createPostWithOptions(ctx context.Context, text string, opts BufferPublishOptions) (*PublishResult, error) {
 	text = text + "\n\n#BeforeTomorrow"
 
-	// Build assets array if image URL provided
 	assetsGQL := ""
-	if imageURL != "" {
+	if opts.ImageURL != "" {
 		assetsGQL = fmt.Sprintf(`
       assets: [
         {
@@ -102,7 +148,30 @@ func (c *BufferClient) createPost(ctx context.Context, text, imageURL string) (*
             url: %q
           }
         }
-      ]`, imageURL)
+      ]`, opts.ImageURL)
+	}
+
+	mode := opts.Mode
+	if mode == "" {
+		mode = BufferModeQueue
+	}
+
+	// Buffer's GraphQL accepts `mode: now | addToQueue | custom`. For custom mode
+	// we additionally include schedulingType: custom and the ISO-8601 scheduledAt.
+	scheduleGQL := ""
+	switch mode {
+	case BufferModeNow:
+		scheduleGQL = "mode: now"
+	case BufferModeCustom:
+		if opts.ScheduledAt.IsZero() {
+			return nil, fmt.Errorf("buffer: custom mode requires non-zero ScheduledAt")
+		}
+		scheduleGQL = fmt.Sprintf(
+			"mode: custom\n      schedulingType: custom\n      scheduledAt: %q",
+			opts.ScheduledAt.UTC().Format(time.RFC3339),
+		)
+	default:
+		scheduleGQL = "mode: addToQueue\n      schedulingType: automatic"
 	}
 
 	mutation := fmt.Sprintf(`
@@ -111,8 +180,7 @@ mutation CreatePost {
     input: {
       text: %q
       channelId: %q
-      schedulingType: automatic
-      mode: addToQueue
+      %s
       %s
     }
   ) {
@@ -127,23 +195,20 @@ mutation CreatePost {
       message
     }
   }
-}`, text, c.channelID, assetsGQL)
+}`, text, c.channelID, scheduleGQL, assetsGQL)
 
 	result, err := c.bufferRequest(ctx, mutation, nil)
 	if err != nil {
 		return nil, fmt.Errorf("buffer createPost: %w", err)
 	}
 
-	// Navigate the response
 	data, _ := result["data"].(map[string]any)
 	createPost, _ := data["createPost"].(map[string]any)
 
-	// Check for MutationError
 	if msg, ok := createPost["message"]; ok {
 		return nil, fmt.Errorf("buffer createPost mutation error: %v", msg)
 	}
 
-	// Extract PostActionSuccess
 	post, _ := createPost["post"].(map[string]any)
 	if post == nil {
 		return nil, fmt.Errorf("buffer createPost: unexpected response shape: %v", result)
@@ -155,6 +220,11 @@ mutation CreatePost {
 		Status: models.PublishStatusSuccess,
 		URL:    fmt.Sprintf("https://twitter.com/i/web/status/%s", postID),
 	}, nil
+}
+
+// PublishWithOptions sends a post via Buffer with explicit scheduling control.
+func (c *BufferClient) PublishWithOptions(ctx context.Context, text string, opts BufferPublishOptions) (*PublishResult, error) {
+	return c.createPostWithOptions(ctx, text, opts)
 }
 
 // PublishText posts a text-only tweet via Buffer (implements Publisher).
