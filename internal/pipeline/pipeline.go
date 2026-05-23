@@ -391,13 +391,16 @@ func (o *Orchestrator) publishDraft(ctx context.Context, d models.DraftPost) err
 
 	if len(mediaIDs) > 0 {
 		publishRes, err = o.publishViaBuffer(ctx, d, mediaIDs[0])
-		if err != nil {
-			// Fallback to legacy PublishWithMedia for non-Buffer publishers (e.g. XClient).
+		// Only fall back to the generic Publisher interface when the configured
+		// publisher is not a Buffer client. Real Buffer errors (429, GraphQL,
+		// network) must propagate so the batch loop can detect rate limits and
+		// stop hammering the API.
+		if err == errNotBufferPublisher {
 			publishRes, err = o.publisher.PublishWithMedia(ctx, d.Content, mediaIDs)
 		}
 	} else {
 		publishRes, err = o.publishViaBuffer(ctx, d, "")
-		if err != nil {
+		if err == errNotBufferPublisher {
 			publishRes, err = o.publisher.PublishText(ctx, d.Content)
 		}
 	}
